@@ -1,6 +1,6 @@
 
 // core/feature-alloc/alloc.c
-#include "alloc.h"
+#include "diram/core/feature-alloc/alloc.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
