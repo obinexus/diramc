@@ -5,14 +5,43 @@
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
+#if defined(_WIN32) || defined(_WIN64)
+// Windows does not support pthreads natively; define stubs or include Windows equivalents if needed
+#include <windows.h>
+typedef HANDLE pthread_mutex_t;
+#define pthread_mutex_init(m, a)    (*(m) = CreateMutex(NULL, FALSE, NULL), 0)
+#define pthread_mutex_destroy(m)    (CloseHandle(*(m)), 0)
+#define pthread_mutex_lock(m)       (WaitForSingleObject(*(m), INFINITE) == WAIT_OBJECT_0 ? 0 : -1)
+#define pthread_mutex_unlock(m)     (ReleaseMutex(*(m)) ? 0 : -1)
+// Provide clock_gettime and CLOCK_MONOTONIC for Windows
+#include <time.h>
+#ifndef CLOCK_MONOTONIC
+#define CLOCK_MONOTONIC 1
+#endif
+static int clock_gettime(int clk_id, struct timespec* ts) {
+    // Use Windows API to get time since system start
+    LARGE_INTEGER freq, count;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&count);
+    ts->tv_sec = (time_t)(count.QuadPart / freq.QuadPart);
+    ts->tv_nsec = (long)(((count.QuadPart % freq.QuadPart) * 1000000000ULL) / freq.QuadPart);
+    return 0;
+}
+#else
 #include <pthread.h>
+#include <time.h>
+#endif
 #include <fcntl.h>
 #include <sys/file.h>
 
 // Thread-local storage for heap event constraints
 static __thread diram_heap_context_t heap_ctx = {0, 0};
 static FILE* trace_log = NULL;
+#if defined(_WIN32) || defined(_WIN64)
+static pthread_mutex_t trace_mutex = NULL;
+#else
 static pthread_mutex_t trace_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 // SHA-256 implementation (simplified for demonstration)
 static void sha256_hex(const void* data, size_t len, char* output) {
