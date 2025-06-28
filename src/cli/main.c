@@ -20,8 +20,8 @@
 #define PATH_MAX 4096
 #endif
 
-#include "diram/core/feature-alloc/alloc.h"
-#include "diram/core/feature-alloc/feature_alloc.h"
+#include "diram/core/alloc/alloc.h"
+#include "diram/core/alloc/feature_alloc.h"
 
 #define DIRAM_VERSION "1.0.0"
 #define DIRAM_CONFIG_ENV "DIRAM_CONFIG"

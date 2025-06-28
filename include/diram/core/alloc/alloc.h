@@ -5,7 +5,17 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <time.h>
-
+#if defined(_WIN32) || defined(_WIN64)
+// Windows does not support pthreads natively; define stubs or include Windows equivalents if needed
+#include <windows.h>
+typedef HANDLE pthread_mutex_t;
+#define pthread_mutex_init(m, a)    (*(m) = CreateMutex(NULL, FALSE, NULL), 0)
+#define pthread_mutex_destroy(m)    (CloseHandle(*(m)), 0)
+#define pthread_mutex_lock(m)       (WaitForSingleObject(*(m), INFINITE) == WAIT_OBJECT_0 ? 0 : -1)
+#define pthread_mutex_unlock(m)     (ReleaseMutex(*(m)) ? 0 : -1)
+#else
+#include <pthread.h>
+#endif
 #define DIRAM_MAX_HEAP_EVENTS 3
 #define DIRAM_SHA256_HEX_LEN 65
 #define DIRAM_TRACE_LOG_PATH "logs/alloc_trace.log"
