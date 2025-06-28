@@ -1,5 +1,5 @@
 
-// core/feature-alloc/test_alloc.c
+
 #include "alloc.h"
 #include <stdio.h>
 #include <assert.h>

@@ -4,7 +4,7 @@
 # Compiler and Flags
 CC = gcc
 CFLAGS = -Wall -Wextra -Werror -pedantic -std=c11
-CFLAGS += -I./include
+CFLAGS += -I./include -I./include/diram/core/alloc
 CFLAGS += -D_GNU_SOURCE  # For fork(), execvp()
 CFLAGS += -pthread       # For pthread_mutex
 LDFLAGS = -lpthread -lm
@@ -30,7 +30,7 @@ LIB_DIR = $(BUILD_DIR)/lib
 # Source Files
 ALLOC_SRCS = $(SRC_DIR)/core/alloc.c
 CLI_SRCS = $(SRC_DIR)/cli/main.c
-TEST_SRCS = $(TEST_DIR)/core/feature-alloc/test_alloc.c
+TEST_SRCS = $(TEST_DIR)/core/alloc/test_alloc.c
 
 # Object Files
 ALLOC_OBJS = $(ALLOC_SRCS:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
