@@ -4,17 +4,7 @@
 
 #include "alloc.h"  // Base allocation types
 #include <stdint.h>
-#if defined(_WIN32) || defined(_WIN64)
-// Windows does not support pthreads natively; define stubs or include Windows equivalents if needed
-#include <windows.h>
-typedef HANDLE pthread_mutex_t;
-#define pthread_mutex_init(m, a)    (*(m) = CreateMutex(NULL, FALSE, NULL), 0)
-#define pthread_mutex_destroy(m)    (CloseHandle(*(m)), 0)
-#define pthread_mutex_lock(m)       (WaitForSingleObject(*(m), INFINITE) == WAIT_OBJECT_0 ? 0 : -1)
-#define pthread_mutex_unlock(m)     (ReleaseMutex(*(m)) ? 0 : -1)
-#else
 #include <pthread.h>
-#endif
 
 // Error Index Categories (Telemetry Schema Layer 2)
 typedef enum {

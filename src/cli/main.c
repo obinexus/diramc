@@ -7,21 +7,14 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <signal.h>
-#if defined(_WIN32) || defined(_WIN64)
-#include <windows.h>
-#else
 #include <sys/wait.h>
 #include <sys/stat.h>
-#endif
 #include <fcntl.h>
 #include <errno.h>
 #include <limits.h>
-#ifndef PATH_MAX
-#define PATH_MAX 4096
-#endif
 
-#include "diram/core/alloc/alloc.h"
-#include "diram/core/alloc/feature_alloc.h"
+#include "diram/core/feature-alloc/alloc.h"
+#include "diram/core/feature-alloc/feature_alloc.h"
 
 #define DIRAM_VERSION "1.0.0"
 #define DIRAM_CONFIG_ENV "DIRAM_CONFIG"
@@ -54,9 +47,7 @@ static diram_config_t g_config = {
 // Signal handling for detached processes
 static void sigchld_handler(int sig) {
     (void)sig;
-#ifndef _WIN32
     while (waitpid(-1, NULL, WNOHANG) > 0);
-#endif
 }
 
 // Parse configuration file (.dramrc or specified)
@@ -124,30 +115,41 @@ static int run_detached(char **argv) {
         exit(1);
     }
     
-        // Setup signal handling
-    #ifndef _WIN32
-        signal(SIGCHLD, sigchld_handler);
-        signal(SIGHUP, SIG_IGN);
-    #endif
+    // Setup signal handling
+    signal(SIGCHLD, sigchld_handler);
+    signal(SIGHUP, SIG_IGN);
     
     // Create log directory
-    #if defined(_WIN32) || defined(_WIN64)
-        mkdir(g_config.log_dir);
-    #else
-        mkdir(g_config.log_dir, 0755);
-    #endif
+    mkdir(g_config.log_dir, 0755);
     
-    // Redirect stdout/stderr to log files
+    // Redirect stdout/stderr to log files with safe path construction
     char log_path[PATH_MAX];
+    int path_len;
     
-    snprintf(log_path, sizeof(log_path), "%s/diram.out.log", g_config.log_dir);
+    // Ensure log directory length leaves room for filename
+    if (strlen(g_config.log_dir) > PATH_MAX - 32) {
+        fprintf(stderr, "Log directory path too long\n");
+        exit(1);
+    }
+    
+    path_len = snprintf(log_path, sizeof(log_path), "%s/diram.out.log", g_config.log_dir);
+    if (path_len >= (int)sizeof(log_path)) {
+        fprintf(stderr, "Output log path truncated\n");
+        exit(1);
+    }
+    
     int fd_out = open(log_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd_out >= 0) {
         dup2(fd_out, STDOUT_FILENO);
         close(fd_out);
     }
     
-    snprintf(log_path, sizeof(log_path), "%s/diram.err.log", g_config.log_dir);
+    path_len = snprintf(log_path, sizeof(log_path), "%s/diram.err.log", g_config.log_dir);
+    if (path_len >= (int)sizeof(log_path)) {
+        fprintf(stderr, "Error log path truncated\n");
+        exit(1);
+    }
+    
     int fd_err = open(log_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd_err >= 0) {
         dup2(fd_err, STDERR_FILENO);
