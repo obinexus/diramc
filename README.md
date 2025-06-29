@@ -5,6 +5,28 @@
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/obinexus/diram)
 
 DIRAM is a hybrid architecture for executing genetically-inspired instruction sets using a memory model that fuses stack resolution with RAM persistence. Part of the OBINexus Aegis Project, DIRAM provides cryptographically-enforced memory allocation with zero-trust governance integration.
+Say less — I got you.
+
+
+### 🧠 DIRAM in a Nutshell
+**DIRAM (Directed Instruction RAM)** is a cryptographically governed memory system that fuses RAM persistence with stack-like resolution and predictive, cache-inspired behavior.
+
+DIRAM is not a traditional LRU cache. Instead, it introduces:
+
+- 🧭 **Predictive Allocation**  
+  Anticipates future memory needs using asynchronous promises and lookahead strategies.
+
+- 🧬 **Governed Eviction**  
+  Enforces runtime memory constraints (`ε(x) ≤ 0.6`)—allocations are audited and evicted based on behavioral rules, not just age or usage.
+
+- 🧠 **Traceable Memory Dynamics**  
+  Tracks every allocation with SHA-256 receipts and enforces zero-trust boundaries, providing full cryptographic traceability.
+
+- 🧵 **Fork-Safe Detached Execution**  
+  Supports background operation with audit logging (`alloc_trace.log`), interactive REPL, and telemetry for real-time introspection.
+
+DIRAM transforms memory management into a predictive, auditable, and cryptographically secure process—ideal for systems demanding intelligent, zero-trust allocation.
+
 
 ## Table of Contents
 
