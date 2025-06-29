@@ -7,14 +7,23 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <signal.h>
+#if defined(_WIN32) || defined(_WIN64)
+#include <windows.h>
+#else
 #include <sys/wait.h>
 #include <sys/stat.h>
+#endif
 #include <fcntl.h>
 #include <errno.h>
 #include <limits.h>
-
+#include <ctype.h>
+#include <dirent.h>
 #include "diram/core/feature-alloc/alloc.h"
 #include "diram/core/feature-alloc/feature_alloc.h"
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 #define DIRAM_VERSION "1.0.0"
 #define DIRAM_CONFIG_ENV "DIRAM_CONFIG"
@@ -44,10 +53,274 @@ static diram_config_t g_config = {
     .verbose = 0
 };
 
+
+
+// Global structures for REPL state management
+typedef struct {
+    diram_allocation_t* alloc;
+    char tag[64];
+    void* address;
+} repl_allocation_t;
+
+#define MAX_REPL_ALLOCATIONS 1024
+static repl_allocation_t g_repl_allocations[MAX_REPL_ALLOCATIONS];
+static int g_repl_allocation_count = 0;
+static diram_memory_space_t* g_repl_memory_space = NULL;
+
+// Helper function to parse size with unit suffixes
+static size_t parse_size(const char* size_str) {
+    char* endptr;
+    size_t size = strtoul(size_str, &endptr, 10);
+    
+    // Handle unit suffixes
+    if (*endptr != '\0') {
+        switch (tolower(*endptr)) {
+            case 'k': size *= 1024; break;
+            case 'm': size *= 1024 * 1024; break;
+            case 'g': size *= 1024 * 1024 * 1024; break;
+        }
+    }
+    
+    return size;
+}
+
+// Helper function to find allocation by address
+static int find_allocation_by_address(void* addr) {
+    for (int i = 0; i < g_repl_allocation_count; i++) {
+        if (g_repl_allocations[i].alloc && 
+            g_repl_allocations[i].alloc->base_addr == addr) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// REPL command implementations
+static void repl_cmd_alloc(const char* args) {
+    char size_str[32] = {0};
+    char tag[64] = {0};
+    
+    int parsed = sscanf(args, "%31s %63s", size_str, tag);
+    if (parsed < 1) {
+        printf("Error: Usage: alloc <size> [tag]\n");
+        printf("       Size can use suffixes: K, M, G (e.g., 4K, 16M)\n");
+        return;
+    }
+    
+    size_t size = parse_size(size_str);
+    if (size == 0) {
+        printf("Error: Invalid size specified\n");
+        return;
+    }
+    
+    if (g_repl_allocation_count >= MAX_REPL_ALLOCATIONS) {
+        printf("Error: Maximum allocations reached (%d)\n", MAX_REPL_ALLOCATIONS);
+        return;
+    }
+    
+    // Initialize memory space if needed
+    if (!g_repl_memory_space && g_config.memory_limit > 0) {
+        g_repl_memory_space = diram_space_create(
+            g_config.memory_space, 
+            g_config.memory_limit * 1024 * 1024
+        );
+    }
+    
+    // Perform allocation
+    diram_allocation_t* alloc = diram_alloc_traced(
+        size, 
+        tag[0] ? tag : NULL
+    );
+    
+    if (!alloc) {
+        printf("Error: Allocation failed (constraint violation or OOM)\n");
+        return;
+    }
+    
+    // Store allocation info
+    g_repl_allocations[g_repl_allocation_count].alloc = alloc;
+    strncpy(g_repl_allocations[g_repl_allocation_count].tag, 
+            tag[0] ? tag : "untagged", 63);
+    g_repl_allocations[g_repl_allocation_count].address = alloc->base_addr;
+    g_repl_allocation_count++;
+    
+    printf("Allocated %zu bytes at %p\n", size, alloc->base_addr);
+    printf("  SHA-256: %.16s...\n", alloc->sha256_receipt);
+    printf("  Heap events: %d/3\n", alloc->heap_events);
+}
+
+static void repl_cmd_free(const char* args) {
+    void* addr;
+    if (sscanf(args, "%p", &addr) != 1) {
+        printf("Error: Usage: free <address>\n");
+        return;
+    }
+    
+    int index = find_allocation_by_address(addr);
+    if (index < 0) {
+        printf("Error: No allocation found at address %p\n", addr);
+        return;
+    }
+    
+    diram_free_traced(g_repl_allocations[index].alloc);
+    printf("Freed allocation at %p\n", addr);
+    
+    // Remove from tracking
+    g_repl_allocations[index].alloc = NULL;
+    
+    // Compact array
+    for (int i = index; i < g_repl_allocation_count - 1; i++) {
+        g_repl_allocations[i] = g_repl_allocations[i + 1];
+    }
+    g_repl_allocation_count--;
+}
+
+static void repl_cmd_trace(void) {
+    if (g_repl_allocation_count == 0) {
+        printf("No active allocations\n");
+        return;
+    }
+    
+    printf("Active allocations: %d\n", g_repl_allocation_count);
+    printf("%-18s %-10s %-20s %-18s\n", 
+           "Address", "Size", "Tag", "SHA-256");
+    printf("%-18s %-10s %-20s %-18s\n",
+           "-------", "----", "---", "-------");
+    
+    for (int i = 0; i < g_repl_allocation_count; i++) {
+        if (g_repl_allocations[i].alloc) {
+            printf("%-18p %-10zu %-20s %.16s...\n",
+                   g_repl_allocations[i].alloc->base_addr,
+                   g_repl_allocations[i].alloc->size,
+                   g_repl_allocations[i].tag,
+                   g_repl_allocations[i].alloc->sha256_receipt);
+        }
+    }
+    
+    // Show heap constraint status
+    if (g_repl_allocation_count > 0) {
+        diram_allocation_t* last = g_repl_allocations[g_repl_allocation_count-1].alloc;
+        if (last) {
+            printf("\nHeap constraint status: %d/3 events used (ε = %.1f)\n", 
+                   last->heap_events, last->heap_events / 3.0);
+        }
+    }
+}
+
+static void repl_cmd_config(void) {
+    printf("Current configuration:\n");
+    printf("  Memory limit: %zu MB\n", g_config.memory_limit);
+    printf("  Memory space: %s\n", g_config.memory_space);
+    printf("  Trace enabled: %s\n", g_config.trace_enabled ? "yes" : "no");
+    printf("  Verbose mode: %s\n", g_config.verbose ? "yes" : "no");
+    
+    if (g_repl_memory_space) {
+        printf("\nMemory space status:\n");
+        printf("  Used: %zu bytes\n", g_repl_memory_space->used_bytes);
+        printf("  Limit: %zu bytes\n", g_repl_memory_space->limit_bytes);
+        printf("  Allocations: %u\n", g_repl_memory_space->allocation_count);
+    }
+}
+
+// Enhanced REPL mode implementation
+static int run_repl(void) {
+    printf("DIRAM REPL v%s\n", DIRAM_VERSION);
+    printf("Type 'help' for commands, 'exit' to quit\n\n");
+    
+    // Initialize tracing if enabled
+    if (g_config.trace_enabled) {
+        if (diram_init_trace_log() < 0) {
+            fprintf(stderr, "Warning: Failed to initialize trace log\n");
+        }
+    }
+    
+    // Initialize error indexing
+    diram_error_index_init();
+    
+    char line[1024];
+    char cmd[64];
+    char args[960];
+    
+    while (1) {
+        printf("diram> ");
+        fflush(stdout);
+        
+        if (!fgets(line, sizeof(line), stdin)) {
+            break;
+        }
+        
+        // Remove newline
+        line[strcspn(line, "\n")] = 0;
+        
+        // Skip empty lines
+        if (strlen(line) == 0) {
+            continue;
+        }
+        
+        // Parse command and arguments
+        int parsed = sscanf(line, "%63s %959[^\n]", cmd, args);
+        if (parsed < 1) {
+            continue;
+        }
+        
+        // Process commands
+        if (strcmp(cmd, "exit") == 0 || strcmp(cmd, "quit") == 0) {
+            break;
+        } else if (strcmp(cmd, "help") == 0) {
+            printf("Commands:\n");
+            printf("  alloc <size> [tag]  - Allocate traced memory\n");
+            printf("                        Size supports K/M/G suffixes\n");
+            printf("  free <addr>         - Free allocated memory\n");
+            printf("  trace               - Show allocation trace\n");
+            printf("  config              - Show current configuration\n");
+            printf("  exit/quit           - Exit REPL\n");
+            printf("\nExamples:\n");
+            printf("  alloc 1024 mybuffer\n");
+            printf("  alloc 4K tempdata\n");
+            printf("  alloc 1M\n");
+            printf("  free 0x7fff12345678\n");
+        } else if (strcmp(cmd, "alloc") == 0) {
+            repl_cmd_alloc(parsed > 1 ? args : "");
+        } else if (strcmp(cmd, "free") == 0) {
+            repl_cmd_free(parsed > 1 ? args : "");
+        } else if (strcmp(cmd, "trace") == 0) {
+            repl_cmd_trace();
+        } else if (strcmp(cmd, "config") == 0) {
+            repl_cmd_config();
+        } else {
+            printf("Unknown command: %s\n", cmd);
+            printf("Type 'help' for available commands\n");
+        }
+    }
+    
+    // Cleanup any remaining allocations
+    printf("\nCleaning up %d allocations...\n", g_repl_allocation_count);
+    for (int i = 0; i < g_repl_allocation_count; i++) {
+        if (g_repl_allocations[i].alloc) {
+            diram_free_traced(g_repl_allocations[i].alloc);
+        }
+    }
+    
+    // Cleanup memory space
+    if (g_repl_memory_space) {
+        diram_space_destroy(g_repl_memory_space);
+    }
+    
+    // Cleanup subsystems
+    diram_error_index_shutdown();
+    if (g_config.trace_enabled) {
+        diram_close_trace_log();
+    }
+    
+    printf("Exiting DIRAM REPL\n");
+    return 0;
+}
 // Signal handling for detached processes
 static void sigchld_handler(int sig) {
     (void)sig;
+#ifndef _WIN32
     while (waitpid(-1, NULL, WNOHANG) > 0);
+#endif
 }
 
 // Parse configuration file (.dramrc or specified)
@@ -116,11 +389,17 @@ static int run_detached(char **argv) {
     }
     
     // Setup signal handling
-    signal(SIGCHLD, sigchld_handler);
-    signal(SIGHUP, SIG_IGN);
+    #if !defined(_WIN32) && !defined(_WIN64)
+        signal(SIGCHLD, sigchld_handler);
+        signal(SIGHUP, SIG_IGN);
+    #endif
     
     // Create log directory
-    mkdir(g_config.log_dir, 0755);
+    #if defined(_WIN32) || defined(_WIN64)
+        mkdir(g_config.log_dir);
+    #else
+        mkdir(g_config.log_dir, 0755);
+    #endif
     
     // Redirect stdout/stderr to log files with safe path construction
     char log_path[PATH_MAX];

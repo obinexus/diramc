@@ -13,7 +13,7 @@ CFLAGS_BASE += -pthread       # For pthread_mutex
 # Include Paths
 INCLUDES = -I./include
 
-# Library Flags
+# Library Flags - Correct usage: -ldiram (not -llibdiram)
 LDFLAGS_CORE = -shared -pthread -lm
 LDFLAGS_CLI = -L$(LIB_DIR) -ldiram -pthread -lm -Wl,-rpath,$(LIB_DIR)
 LDFLAGS_EXAMPLES = $(LDFLAGS_CLI)
@@ -112,7 +112,7 @@ $(LIBDIRAM_SHARED): $(CORE_OBJS)
 	@cd $(LIB_DIR) && ln -sf $(SONAME) libdiram.so
 	@echo "[INFO] Shared library built: $(SONAME)"
 
-# CLI Executable Target
+# CLI Executable Target - Links against libdiram correctly
 $(DIRAM_EXE): $(CLI_OBJS) $(LIBDIRAM_STATIC)
 	@echo "[LD] Linking executable: $@"
 	@$(CC) $(CFLAGS) $(CLI_OBJS) $(LDFLAGS_CLI) -o $@
