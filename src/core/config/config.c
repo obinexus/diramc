@@ -302,7 +302,7 @@ int diram_config_load_env(void) {
 }
 
 // Load configuration hierarchy
-static int diram_config_load_hierarchy(void) {
+int diram_config_load_hierarchy(void) {
     int errors = 0;
     char path[PATH_MAX];
     
