@@ -1,6 +1,6 @@
 # DIRAM Makefile - Directed Instruction RAM Build System
 # OBINexus Project Component - Aegis Waterfall Methodology
-# Modular build: core → libdiram.{a,so} → cli → diram.exe
+# Modular build: core → libdiram.{a,so} → cli → diram.exe → examples
 
 # Compiler and Base Flags
 CC = gcc
@@ -16,6 +16,7 @@ INCLUDES = -I./include
 # Library Flags
 LDFLAGS_CORE = -shared -pthread -lm
 LDFLAGS_CLI = -L$(LIB_DIR) -ldiram -pthread -lm -Wl,-rpath,$(LIB_DIR)
+LDFLAGS_EXAMPLES = $(LDFLAGS_CLI)
 
 # Build Modes
 DEBUG ?= 0
@@ -31,9 +32,11 @@ endif
 SRC_DIR = src
 INCLUDE_DIR = include
 TEST_DIR = tests
+EXAMPLES_DIR = examples
 OBJ_DIR = $(BUILD_DIR)/obj
 BIN_DIR = $(BUILD_DIR)/bin
 LIB_DIR = $(BUILD_DIR)/lib
+CONFIG_DIR = config
 
 # Core Library Sources
 CORE_SRCS = $(SRC_DIR)/core/feature-alloc/alloc.c \
@@ -42,39 +45,54 @@ CORE_SRCS = $(SRC_DIR)/core/feature-alloc/alloc.c \
 # CLI Sources
 CLI_SRCS = $(SRC_DIR)/cli/main.c
 
+# Example Sources
+EXAMPLE_CACHE_SRCS = $(EXAMPLES_DIR)/diram/cache-resolution-lookahead/main.c
+
 # Test Sources
 TEST_SRCS = $(TEST_DIR)/core/alloc/test_alloc.c
 
 # Object Files
 CORE_OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CORE_SRCS))
 CLI_OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CLI_SRCS))
+EXAMPLE_CACHE_OBJS = $(patsubst $(EXAMPLES_DIR)/%.c,$(OBJ_DIR)/examples/%.o,$(EXAMPLE_CACHE_SRCS))
 TEST_OBJS = $(patsubst $(TEST_DIR)/%.c,$(OBJ_DIR)/test_%.o,$(TEST_SRCS))
 
 # Target Libraries and Executables
 LIBDIRAM_STATIC = $(LIB_DIR)/libdiram.a
 LIBDIRAM_SHARED = $(LIB_DIR)/libdiram.so
-DIRAM_EXE = $(BIN_DIR)/diram.exe
+LIBDIRAM_SONAME = $(LIB_DIR)/libdiram.so.1
+DIRAM_EXE = $(BIN_DIR)/diram
+EXAMPLE_CACHE_EXE = $(BIN_DIR)/examples/cache-resolution-lookahead
 TEST_EXE = $(BIN_DIR)/test_alloc
+
+# Configuration Files
+CONFIG_FILES = diram.drc
 
 # Version Info
 DIRAM_VERSION = 1.0.0
 SONAME = libdiram.so.1
 
 # Default Target
-all: directories $(LIBDIRAM_STATIC) $(LIBDIRAM_SHARED) $(DIRAM_EXE)
+all: directories $(LIBDIRAM_STATIC) $(LIBDIRAM_SHARED) $(DIRAM_EXE) configs
 
 # Create build directory structure
 directories:
 	@echo "[MKDIR] Creating build directories..."
 	@mkdir -p $(OBJ_DIR)/core/feature-alloc
 	@mkdir -p $(OBJ_DIR)/cli
+	@mkdir -p $(OBJ_DIR)/examples/diram/cache-resolution-lookahead
 	@mkdir -p $(OBJ_DIR)/test_core/alloc
-	@mkdir -p $(BIN_DIR)
+	@mkdir -p $(BIN_DIR)/examples
 	@mkdir -p $(LIB_DIR)
+	@mkdir -p $(BUILD_DIR)/config
 	@mkdir -p logs
 
 # Pattern Rules for Object Files
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+	@echo "[CC] $<"
+	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(OBJ_DIR)/examples/%.o: $(EXAMPLES_DIR)/%.c
 	@echo "[CC] $<"
 	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
@@ -90,16 +108,29 @@ $(LIBDIRAM_STATIC): $(CORE_OBJS)
 
 $(LIBDIRAM_SHARED): $(CORE_OBJS)
 	@echo "[LD] Building shared library: $@"
-	@$(CC) $(LDFLAGS_CORE) -Wl,-soname,$(SONAME) -o $@ $^
-	@cd $(LIB_DIR) && ln -sf $(notdir $@) $(SONAME)
+	@$(CC) $(LDFLAGS_CORE) -Wl,-soname,$(SONAME) -o $(LIBDIRAM_SONAME) $^
 	@cd $(LIB_DIR) && ln -sf $(SONAME) libdiram.so
-	@echo "[INFO] Shared library built: $(notdir $@)"
+	@echo "[INFO] Shared library built: $(SONAME)"
 
 # CLI Executable Target
 $(DIRAM_EXE): $(CLI_OBJS) $(LIBDIRAM_STATIC)
 	@echo "[LD] Linking executable: $@"
 	@$(CC) $(CFLAGS) $(CLI_OBJS) $(LDFLAGS_CLI) -o $@
 	@echo "[INFO] Executable built: $(notdir $@)"
+
+# Example Targets
+examples: directories $(LIBDIRAM_STATIC) $(EXAMPLE_CACHE_EXE)
+
+$(EXAMPLE_CACHE_EXE): $(EXAMPLE_CACHE_OBJS) $(LIBDIRAM_STATIC)
+	@echo "[LD] Linking example: $@"
+	@$(CC) $(CFLAGS) $(EXAMPLE_CACHE_OBJS) $(LDFLAGS_EXAMPLES) -o $@
+	@echo "[INFO] Example built: $(notdir $@)"
+
+# Configuration Files
+configs: directories
+	@echo "[CONFIG] Installing configuration files..."
+	@cp $(CONFIG_FILES) $(BUILD_DIR)/config/
+	@echo "[INFO] Configuration files installed to $(BUILD_DIR)/config/"
 
 # Test Target
 test: directories $(TEST_EXE)
@@ -110,12 +141,17 @@ $(TEST_EXE): $(TEST_OBJS) $(LIBDIRAM_STATIC)
 	@echo "[LD] Linking test executable: $@"
 	@$(CC) $(CFLAGS) $(TEST_OBJS) $(LDFLAGS_CLI) -o $@
 
+# Run Examples
+run-example-cache: $(EXAMPLE_CACHE_EXE)
+	@echo "[RUN] Executing cache resolution lookahead example..."
+	@cd $(BUILD_DIR) && LD_LIBRARY_PATH=$(LIB_DIR) $(EXAMPLE_CACHE_EXE) -c config/diram.drc
+
 # Library Info Target
 .PHONY: libinfo
 libinfo: $(LIBDIRAM_STATIC) $(LIBDIRAM_SHARED)
 	@echo "=== DIRAM Library Information ==="
 	@echo "Static Library: $(LIBDIRAM_STATIC)"
-	@size $(LIBDIRAM_STATIC)
+	@size $(LIBDIRAM_STATIC) 2>/dev/null || echo "Size information not available"
 	@echo ""
 	@echo "Shared Library: $(LIBDIRAM_SHARED)"
 	@ls -la $(LIB_DIR)/libdiram*
@@ -132,9 +168,12 @@ install: all
 	@install -d $(PREFIX)/lib
 	@install -d $(PREFIX)/include/diram/core/feature-alloc
 	@install -d $(PREFIX)/include/diram/cli
+	@install -d $(PREFIX)/etc/diram
 	@install -m 755 $(DIRAM_EXE) $(PREFIX)/bin/diram
 	@install -m 644 $(LIBDIRAM_STATIC) $(PREFIX)/lib/
-	@install -m 755 $(LIBDIRAM_SHARED) $(PREFIX)/lib/
+	@install -m 755 $(LIBDIRAM_SONAME) $(PREFIX)/lib/
+	@cd $(PREFIX)/lib && ln -sf $(SONAME) libdiram.so
+	@install -m 644 diram.drc $(PREFIX)/etc/diram/
 	@ldconfig $(PREFIX)/lib 2>/dev/null || true
 	@cp -r $(INCLUDE_DIR)/diram/* $(PREFIX)/include/diram/
 
@@ -184,9 +223,12 @@ obinexus-deploy: all
 	@echo "[DEPLOY] Deploying to OBINexus environment..."
 	@install -d $(OBINEXUS_DEPLOY_PATH)/bin
 	@install -d $(OBINEXUS_DEPLOY_PATH)/lib
+	@install -d $(OBINEXUS_DEPLOY_PATH)/etc/diram
 	@install -m 755 $(DIRAM_EXE) $(OBINEXUS_DEPLOY_PATH)/bin/
 	@install -m 644 $(LIBDIRAM_STATIC) $(OBINEXUS_DEPLOY_PATH)/lib/
-	@install -m 755 $(LIBDIRAM_SHARED) $(OBINEXUS_DEPLOY_PATH)/lib/
+	@install -m 755 $(LIBDIRAM_SONAME) $(OBINEXUS_DEPLOY_PATH)/lib/
+	@cd $(OBINEXUS_DEPLOY_PATH)/lib && ln -sf $(SONAME) libdiram.so
+	@install -m 644 diram.drc $(OBINEXUS_DEPLOY_PATH)/etc/diram/
 	@echo "[DEPLOY] OBINexus deployment complete"
 
 # Help Target
@@ -196,6 +238,7 @@ help:
 	@echo "====================================="
 	@echo "Targets:"
 	@echo "  all          - Build libraries and executable (default)"
+	@echo "  examples     - Build example programs"
 	@echo "  debug        - Build with debug symbols"
 	@echo "  release      - Build optimized release"
 	@echo "  test         - Build and run tests"
@@ -206,10 +249,11 @@ help:
 	@echo "  analyze      - Run static code analysis"
 	@echo "  format       - Format source code"
 	@echo "  docs         - Generate documentation"
+	@echo "  run-example-cache - Run cache resolution lookahead example"
 	@echo "  obinexus-deploy - Deploy to OBINexus environment"
 	@echo ""
 	@echo "Variables:"
 	@echo "  DEBUG=1      - Enable debug build"
 	@echo "  PREFIX=path  - Installation prefix (default: /usr/local)"
 
-.PHONY: all directories test libinfo install debug release clean distclean analyze format docs obinexus-deploy help
+.PHONY: all directories test libinfo install debug release clean distclean analyze format docs obinexus-deploy help examples run-example-cache configs

@@ -238,8 +238,9 @@ diram_enhanced_allocation_t* diram_alloc_enhanced(size_t size,
         .size = size,
         .operation = "ALLOC_ENHANCED"
     };
-    strncpy(event.receipt, enhanced->base.sha256_receipt, 
-            sizeof(event.receipt) - 1);
+    memcpy(event.receipt, enhanced->base.sha256_receipt, 
+           sizeof(event.receipt) - 1);
+    event.receipt[sizeof(event.receipt) - 1] = '\0';
     diram_telemetry_emit(&event);
     
     return enhanced;
