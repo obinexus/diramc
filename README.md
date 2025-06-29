@@ -5,7 +5,6 @@
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/obinexus/diram)
 
 DIRAM is a hybrid architecture for executing genetically-inspired instruction sets using a memory model that fuses stack resolution with RAM persistence. Part of the OBINexus Aegis Project, DIRAM provides cryptographically-enforced memory allocation with zero-trust governance integration.
-Say less — I got you.
 
 
 ### 🧠 DIRAM in a Nutshell
