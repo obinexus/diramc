@@ -222,99 +222,6 @@ static void repl_cmd_config(void) {
     }
 }
 
-// Enhanced REPL mode implementation
-static int run_repl(void) {
-    printf("DIRAM REPL v%s\n", DIRAM_VERSION);
-    printf("Type 'help' for commands, 'exit' to quit\n\n");
-    
-    // Initialize tracing if enabled
-    if (g_config.trace_enabled) {
-        if (diram_init_trace_log() < 0) {
-            fprintf(stderr, "Warning: Failed to initialize trace log\n");
-        }
-    }
-    
-    // Initialize error indexing
-    diram_error_index_init();
-    
-    char line[1024];
-    char cmd[64];
-    char args[960];
-    
-    while (1) {
-        printf("diram> ");
-        fflush(stdout);
-        
-        if (!fgets(line, sizeof(line), stdin)) {
-            break;
-        }
-        
-        // Remove newline
-        line[strcspn(line, "\n")] = 0;
-        
-        // Skip empty lines
-        if (strlen(line) == 0) {
-            continue;
-        }
-        
-        // Parse command and arguments
-        int parsed = sscanf(line, "%63s %959[^\n]", cmd, args);
-        if (parsed < 1) {
-            continue;
-        }
-        
-        // Process commands
-        if (strcmp(cmd, "exit") == 0 || strcmp(cmd, "quit") == 0) {
-            break;
-        } else if (strcmp(cmd, "help") == 0) {
-            printf("Commands:\n");
-            printf("  alloc <size> [tag]  - Allocate traced memory\n");
-            printf("                        Size supports K/M/G suffixes\n");
-            printf("  free <addr>         - Free allocated memory\n");
-            printf("  trace               - Show allocation trace\n");
-            printf("  config              - Show current configuration\n");
-            printf("  exit/quit           - Exit REPL\n");
-            printf("\nExamples:\n");
-            printf("  alloc 1024 mybuffer\n");
-            printf("  alloc 4K tempdata\n");
-            printf("  alloc 1M\n");
-            printf("  free 0x7fff12345678\n");
-        } else if (strcmp(cmd, "alloc") == 0) {
-            repl_cmd_alloc(parsed > 1 ? args : "");
-        } else if (strcmp(cmd, "free") == 0) {
-            repl_cmd_free(parsed > 1 ? args : "");
-        } else if (strcmp(cmd, "trace") == 0) {
-            repl_cmd_trace();
-        } else if (strcmp(cmd, "config") == 0) {
-            repl_cmd_config();
-        } else {
-            printf("Unknown command: %s\n", cmd);
-            printf("Type 'help' for available commands\n");
-        }
-    }
-    
-    // Cleanup any remaining allocations
-    printf("\nCleaning up %d allocations...\n", g_repl_allocation_count);
-    for (int i = 0; i < g_repl_allocation_count; i++) {
-        if (g_repl_allocations[i].alloc) {
-            diram_free_traced(g_repl_allocations[i].alloc);
-        }
-    }
-    
-    // Cleanup memory space
-    if (g_repl_memory_space) {
-        diram_space_destroy(g_repl_memory_space);
-    }
-    
-    // Cleanup subsystems
-    diram_error_index_shutdown();
-    if (g_config.trace_enabled) {
-        diram_close_trace_log();
-    }
-    
-    printf("Exiting DIRAM REPL\n");
-    return 0;
-}
 // Signal handling for detached processes
 static void sigchld_handler(int sig) {
     (void)sig;
@@ -465,12 +372,25 @@ static int setup_memory_isolation(void) {
     return 0;
 }
 
-// REPL mode implementation
+// Enhanced REPL mode implementation
 static int run_repl(void) {
     printf("DIRAM REPL v%s\n", DIRAM_VERSION);
     printf("Type 'help' for commands, 'exit' to quit\n\n");
     
+    // Initialize tracing if enabled
+    if (g_config.trace_enabled) {
+        if (diram_init_trace_log() < 0) {
+            fprintf(stderr, "Warning: Failed to initialize trace log\n");
+        }
+    }
+    
+    // Initialize error indexing
+    diram_error_index_init();
+    
     char line[1024];
+    char cmd[64];
+    char args[960];
+    
     while (1) {
         printf("diram> ");
         fflush(stdout);
@@ -482,39 +402,67 @@ static int run_repl(void) {
         // Remove newline
         line[strcspn(line, "\n")] = 0;
         
+        // Skip empty lines
+        if (strlen(line) == 0) {
+            continue;
+        }
+        
+        // Parse command and arguments
+        int parsed = sscanf(line, "%63s %959[^\n]", cmd, args);
+        if (parsed < 1) {
+            continue;
+        }
+        
         // Process commands
-        if (strcmp(line, "exit") == 0 || strcmp(line, "quit") == 0) {
+        if (strcmp(cmd, "exit") == 0 || strcmp(cmd, "quit") == 0) {
             break;
-        } else if (strcmp(line, "help") == 0) {
+        } else if (strcmp(cmd, "help") == 0) {
             printf("Commands:\n");
-            printf("  alloc <size> <tag>  - Allocate traced memory\n");
+            printf("  alloc <size> [tag]  - Allocate traced memory\n");
+            printf("                        Size supports K/M/G suffixes\n");
             printf("  free <addr>         - Free allocated memory\n");
             printf("  trace               - Show allocation trace\n");
             printf("  config              - Show current configuration\n");
             printf("  exit/quit           - Exit REPL\n");
-        } else if (strncmp(line, "alloc ", 6) == 0) {
-            size_t size;
-            char tag[64] = {0};
-            if (sscanf(line + 6, "%zu %63s", &size, tag) >= 1) {
-                diram_allocation_t *alloc = diram_alloc_traced(size, tag[0] ? tag : NULL);
-                if (alloc) {
-                    printf("Allocated %zu bytes at %p (SHA: %.16s...)\n", 
-                           size, alloc->base_addr, alloc->sha256_receipt);
-                } else {
-                    printf("Allocation failed (constraint violation or OOM)\n");
-                }
-            }
-        } else if (strcmp(line, "config") == 0) {
-            printf("Current configuration:\n");
-            printf("  Memory limit: %zu MB\n", g_config.memory_limit);
-            printf("  Memory space: %s\n", g_config.memory_space);
-            printf("  Trace enabled: %s\n", g_config.trace_enabled ? "yes" : "no");
-        } else if (strlen(line) > 0) {
-            printf("Unknown command: %s\n", line);
+            printf("\nExamples:\n");
+            printf("  alloc 1024 mybuffer\n");
+            printf("  alloc 4K tempdata\n");
+            printf("  alloc 1M\n");
+            printf("  free 0x7fff12345678\n");
+        } else if (strcmp(cmd, "alloc") == 0) {
+            repl_cmd_alloc(parsed > 1 ? args : "");
+        } else if (strcmp(cmd, "free") == 0) {
+            repl_cmd_free(parsed > 1 ? args : "");
+        } else if (strcmp(cmd, "trace") == 0) {
+            repl_cmd_trace();
+        } else if (strcmp(cmd, "config") == 0) {
+            repl_cmd_config();
+        } else {
+            printf("Unknown command: %s\n", cmd);
+            printf("Type 'help' for available commands\n");
         }
     }
     
-    printf("\nExiting DIRAM REPL\n");
+    // Cleanup any remaining allocations
+    printf("\nCleaning up %d allocations...\n", g_repl_allocation_count);
+    for (int i = 0; i < g_repl_allocation_count; i++) {
+        if (g_repl_allocations[i].alloc) {
+            diram_free_traced(g_repl_allocations[i].alloc);
+        }
+    }
+    
+    // Cleanup memory space
+    if (g_repl_memory_space) {
+        diram_space_destroy(g_repl_memory_space);
+    }
+    
+    // Cleanup subsystems
+    diram_error_index_shutdown();
+    if (g_config.trace_enabled) {
+        diram_close_trace_log();
+    }
+    
+    printf("Exiting DIRAM REPL\n");
     return 0;
 }
 
