@@ -139,10 +139,9 @@ static void repl_cmd_alloc(const char* args) {
     
     // Store allocation info
     g_repl_allocations[g_repl_allocation_count].alloc = alloc;
-    strncpy(g_repl_allocations[g_repl_allocation_count].tag,
-            tag[0] ? tag : "untagged",
-            sizeof(g_repl_allocations[g_repl_allocation_count].tag) - 1);
-    g_repl_allocations[g_repl_allocation_count].tag[sizeof(g_repl_allocations[g_repl_allocation_count].tag) - 1] = '\0';
+    snprintf(g_repl_allocations[g_repl_allocation_count].tag,
+             sizeof(g_repl_allocations[g_repl_allocation_count].tag),
+             "%s", tag[0] ? tag : "untagged");
     g_repl_allocations[g_repl_allocation_count].address = alloc->base_addr;
     g_repl_allocation_count++;
     
