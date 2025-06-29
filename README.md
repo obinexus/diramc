@@ -350,7 +350,25 @@ DIRAM tracks and categorizes errors for governance:
 - `0x1004`: Zero-trust boundary breach
 - `0x1005`: SHA-256 verification failure
 
-## Development
+## Further Development Notice
+
+DIRAM's REPL and memory governance features are under active enhancement. Upcoming releases will introduce:
+
+- **Direct Memory Register Manipulation**: The REPL will support commands to set, get, and update memory region pointers and values in real time.
+- **Live Memory Inspection**: Query and modify memory allocations interactively, with immediate cryptographic verification.
+- **Verbose Computation Tracing**: Enable detailed output for memory operations and governance events using the `--verbose` flag.
+- **Advanced Allocation Operations**: New REPL commands for multi-step memory computations (e.g., chained allocations, region arithmetic).
+
+**Example (future REPL session):**
+```
+diram> set left_operand 0x560d2a496f10
+diram> set right_operand 0x560d2a497f90
+diram> multiply left_operand right_operand result
+diram> get result
+Value at 0x560d2a499010: <computed value>
+```
+
+These features will make DIRAM suitable for advanced, real-time memory experiments and cryptographic memory workflows. Stay tuned for updates in the changelog and documentation.
 
 ### Project Structure
 
