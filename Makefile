@@ -90,6 +90,7 @@ directories:
 
 # Pattern Rules for Object Files
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(dir $@)
 	@echo "[CC] $<"
 	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 

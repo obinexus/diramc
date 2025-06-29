@@ -114,6 +114,7 @@ static int process_config_line(const char* section, const char* key, const char*
         snprintf(full_key, sizeof(full_key), "%s.%s", section, key);
     } else {
         strncpy(full_key, key, sizeof(full_key) - 1);
+        full_key[sizeof(full_key) - 1] = '\0';
     }
     
     return diram_config_set_value(full_key, value);

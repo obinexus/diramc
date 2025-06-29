@@ -55,7 +55,7 @@
 #define CFG_RESIL_EXP_BACKOFF "resilience.exponential_backoff"
 
 // Configuration Structure
-typedef struct {
+typedef struct diram_config_t {
     // Basic configuration
     char config_file[PATH_MAX];
     
@@ -107,6 +107,7 @@ typedef struct {
     bool verbose;
     bool repl_mode;
     bool detach_mode;
+    
 } diram_config_t;
 
 // Configuration loading hierarchy

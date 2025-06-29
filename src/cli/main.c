@@ -30,18 +30,6 @@
 #define DIRAM_CONFIG_ENV "DIRAM_CONFIG"
 #define DIRAM_DEFAULT_CONFIG ".dramrc"
 
-// Configuration Structure
-typedef struct {
-    char config_file[PATH_MAX];
-    int detach_mode;
-    int trace_enabled;
-    int repl_mode;
-    size_t memory_limit;      // Memory limit in MB
-    char memory_space[64];    // Named memory space
-    char log_dir[PATH_MAX];
-    int verbose;
-} diram_config_t;
-
 // Global configuration
 static diram_config_t g_config = {
     .config_file = "",
