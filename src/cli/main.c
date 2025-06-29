@@ -20,6 +20,7 @@
 #include <dirent.h>
 #include "diram/core/feature-alloc/alloc.h"
 #include "diram/core/feature-alloc/feature_alloc.h"
+#include "diram/core/config/config.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096

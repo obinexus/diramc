@@ -40,10 +40,11 @@ CONFIG_DIR = config
 
 # Core Library Sources
 CORE_SRCS = $(SRC_DIR)/core/feature-alloc/alloc.c \
-            $(SRC_DIR)/core/feature-alloc/feature_alloc.c
+            $(SRC_DIR)/core/feature-alloc/feature_alloc.c \
+            $(SRC_DIR)/core/config/config.c
 
 # CLI Sources
-CLI_SRCS = $(SRC_DIR)/cli/main.c
+CLI_SRCS = $(SRC_DIR)/cli/main.c 
 
 # Example Sources
 EXAMPLE_CACHE_SRCS = $(EXAMPLES_DIR)/diram/cache-resolution-lookahead/main.c

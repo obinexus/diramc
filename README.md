@@ -104,15 +104,15 @@ diram --detach --config production.drc --trace
 # logs/diram.err.log - Error output
 # logs/alloc_trace.log - Allocation traces (if enabled)
 ```
-
 ## Configuration
 
-DIRAM uses a hierarchical configuration system with `.dramrc` files:
+DIRAM uses a hierarchical configuration system with `.dramrc` files that supports both simple key-value pairs and structured sections for advanced features:
 
 ### Configuration File Format
 
 ```ini
 # ~/.dramrc or project-local .dramrc
+# Basic Configuration
 memory_limit=2048       # Memory limit in MB
 memory_space=production # Named memory space
 trace=true              # Enable allocation tracing
@@ -136,9 +136,85 @@ memory_audit=true      # Enable audit trail
 
 # Telemetry settings
 telemetry_level=2      # 0=disabled, 1=system, 2=opcode-bound
+telemetry_endpoint=/var/run/diram/telemetry.sock
+
+# Advanced sections for async and resilience features
+[async]
+enable_promises=true
+default_timeout_ms=10000
+max_pending_promises=100
+lookahead_cache_size=1024
+
+[detach]
+enable_detach_mode=true
+log_async_operations=true
+persist_promise_receipts=true
+
+[resilience]
+retry_on_transient_failure=true
+max_retry_attempts=3
+exponential_backoff=true
+```
+
+### Example: diram.drc Configuration File
+
+The project includes a comprehensive example configuration file (`diram.drc`) that demonstrates all available options:
+
+```ini
+# DIRAM Configuration File
+# OBINexus Project - Directed Instruction RAM
+
+# Memory Configuration
+memory_limit=6144      # 6GB in MB
+memory_space=userspace # Named memory space identifier
+
+# Tracing Configuration
+trace=true             # Enable SHA-256 receipt generation
+
+# Logging Configuration
+log_dir=logs          # Directory for detached mode logs
+
+# Heap Constraint Configuration (Sinphasé Governance)
+# ε(x) ≤ 0.6 constraint enforced at runtime
+max_heap_events=3     # Maximum allocations per command epoch
+
+# Process Isolation Settings
+detach_timeout=30     # Seconds before detached process self-terminates
+pid_binding=strict    # Enforce strict PID binding for fork safety
+
+# Memory Protection Flags
+guard_pages=true      # Enable guard pages for boundary protection
+canary_values=true    # Enable canary values for overflow detection
+aslr_enabled=true     # Address Space Layout Randomization
+
+# Telemetry Configuration
+telemetry_level=2     # 0=disabled, 1=system, 2=opcode-bound
+telemetry_endpoint=/var/run/diram/telemetry.sock
+
+# Zero-Trust Memory Policy
+zero_trust=true       # Enable zero-trust memory boundaries
+memory_audit=true     # Enable memory audit trail
+
+[async]
+enable_promises=true
+default_timeout_ms=10000
+max_pending_promises=100
+lookahead_cache_size=1024
+
+[detach]
+enable_detach_mode=true
+log_async_operations=true
+persist_promise_receipts=true
+
+[resilience]
+retry_on_transient_failure=true
+max_retry_attempts=3
+exponential_backoff=true
 ```
 
 ### Configuration Hierarchy
+
+DIRAM loads configuration in the following order, with later sources overriding earlier ones:
 
 1. System-wide: `/etc/diram/config.dram`
 2. User home: `~/.dramrc`
@@ -146,28 +222,62 @@ telemetry_level=2      # 0=disabled, 1=system, 2=opcode-bound
 4. Command line: `-c <file>`
 5. Environment: `DIRAM_CONFIG=<file>`
 
-## CLI Reference
+### Runtime Configuration
 
-### Command Line Options
+The REPL provides a `config` command to inspect and modify configuration at runtime:
 
+```bash
+diram> config
+DIRAM Configuration:
+  Memory Configuration:
+    memory_limit: 6144 MB
+    memory_space: userspace
+  Tracing:
+    trace_enabled: yes
+    log_dir: logs
+  Heap Constraints:
+    max_heap_events: 3
+    epsilon: 1.0 (ε = events/max)
+  Process Isolation:
+    detach_timeout: 30 seconds
+    pid_binding: strict
+  Memory Protection:
+    guard_pages: enabled
+    canary_values: enabled
+    aslr_enabled: enabled
+  Telemetry:
+    telemetry_level: 2
+    telemetry_endpoint: /var/run/diram/telemetry.sock
+  Zero-Trust Policy:
+    zero_trust: enabled
+    memory_audit: enabled
 ```
-diram [OPTIONS] [COMMAND]
 
-Options:
-  -c, --config FILE      Load configuration from FILE (default: .dramrc)
-  -d, --detach          Run in detached mode (daemon)
-  -t, --trace           Enable memory allocation tracing
-  -r, --repl            Start interactive REPL
-  -m, --memory LIMIT    Set memory limit in MB
-  -s, --space NAME      Set memory space name
-  -v, --verbose         Enable verbose output
-  -h, --help            Show this help
-  -V, --version         Show version
+### Configuration API
 
-Examples:
-  diram --detach -c production.drc
-  diram --repl --trace
-  diram --memory 1024 --space userspace
+For programmatic access, DIRAM provides a comprehensive configuration API:
+
+```c
+// Initialize configuration with defaults
+diram_config_init();
+
+// Load configuration from file
+diram_config_load_file("custom.dramrc", CONFIG_SOURCE_LOCAL);
+
+// Set individual values
+diram_config_set_value("memory_limit", "8192");
+diram_config_set_value("trace", "true");
+
+// Get configuration values
+const char* space = diram_config_get_value("memory_space");
+
+// Validate configuration
+if (!diram_config_validate()) {
+    fprintf(stderr, "Config error: %s\n", diram_config_get_errors());
+}
+
+// Save current configuration
+diram_config_save("backup.dramrc");
 ```
 
 ### REPL Commands
