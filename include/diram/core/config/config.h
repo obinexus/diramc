@@ -131,7 +131,7 @@ const char* diram_config_get_value(const char* key);
 int diram_config_save(const char* filename);
 void diram_config_print(void);
 void diram_config_cleanup(void);
-
+int diram_config_load_hierarchy(void);
 // Configuration validation
 bool diram_config_validate(void);
 const char* diram_config_get_errors(void);
