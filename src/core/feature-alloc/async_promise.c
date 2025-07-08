@@ -1,6 +1,13 @@
-// src/core/feature-alloc/cache_lookahead.c
+// src/core/feature-alloc/async_promise.c
 #include "diram/core/feature-alloc/async_promise.h"
 #include <time.h>
+#include <unistd.h>    // For getpid()
+#include <errno.h>     // For errno, ENOMEM
+#include <string.h>    // For memcpy, strerror
+#include <stdlib.h>    // For calloc
+
+// Forward declaration
+static void* async_allocation_worker(void* arg);
 
 // Lookahead cache structure for predictive allocation
 typedef struct {
@@ -40,6 +47,21 @@ diram_async_promise_t* diram_alloc_with_lookahead(
     pthread_mutex_init(&promise->state_mutex, NULL);
     pthread_cond_init(&promise->state_cond, NULL);
     
+    // Store context for async worker - addresses unused parameter warnings
+    promise->callback_context = malloc(sizeof(struct {
+        char* tag;
+        diram_memory_space_t* space;
+    }));
+    
+    if (promise->callback_context) {
+        struct {
+            char* tag;
+            diram_memory_space_t* space;
+        }* ctx = promise->callback_context;
+        ctx->tag = tag ? strdup(tag) : NULL;
+        ctx->space = space;
+    }
+    
     // Check lookahead cache for predictive hints
     pthread_rwlock_rdlock(&g_lookahead_cache.lock);
     size_t predicted_size = size;
@@ -68,11 +90,24 @@ diram_async_promise_t* diram_alloc_with_lookahead(
 static void* async_allocation_worker(void* arg) {
     diram_async_promise_t* promise = (diram_async_promise_t*)arg;
     
+    // Extract context if available
+    const char* tag = "async_alloc";
+    diram_memory_space_t* space = NULL;
+    
+    if (promise->callback_context) {
+        struct {
+            char* tag;
+            diram_memory_space_t* space;
+        }* ctx = promise->callback_context;
+        if (ctx->tag) tag = ctx->tag;
+        space = ctx->space;
+    }
+    
     // Simulate async work with potential failures
     diram_enhanced_allocation_t* alloc = diram_alloc_enhanced(
         promise->lookahead_size,
-        "async_alloc",
-        NULL  // Space will be bound later
+        tag,
+        space
     );
     
     if (alloc) {
@@ -92,5 +127,172 @@ static void* async_allocation_worker(void* arg) {
         diram_promise_reject(promise, reason, strerror(errno));
     }
     
+    // Cleanup context
+    if (promise->callback_context) {
+        struct {
+            char* tag;
+            diram_memory_space_t* space;
+        }* ctx = promise->callback_context;
+        if (ctx->tag) free(ctx->tag);
+        free(promise->callback_context);
+        promise->callback_context = NULL;
+    }
+    
     return NULL;
+}
+
+// Promise lifecycle implementations
+int diram_promise_await(diram_async_promise_t* promise, uint64_t timeout_ms) {
+    if (!promise) return -1;
+    
+    pthread_mutex_lock(&promise->state_mutex);
+    
+    // Calculate absolute timeout
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += timeout_ms / 1000;
+    ts.tv_nsec += (timeout_ms % 1000) * 1000000;
+    if (ts.tv_nsec >= 1000000000) {
+        ts.tv_sec++;
+        ts.tv_nsec -= 1000000000;
+    }
+    
+    // Wait for state change
+    while (promise->receipt.state == PROMISE_STATE_PENDING) {
+        if (pthread_cond_timedwait(&promise->state_cond, 
+                                   &promise->state_mutex, &ts) == ETIMEDOUT) {
+            promise->receipt.state = PROMISE_STATE_REJECTED;
+            promise->receipt.reject_reason = REJECT_REASON_TIMEOUT;
+            pthread_mutex_unlock(&promise->state_mutex);
+            return -1;
+        }
+    }
+    
+    pthread_mutex_unlock(&promise->state_mutex);
+    return (promise->receipt.state == PROMISE_STATE_RESOLVED) ? 0 : -1;
+}
+
+int diram_promise_resolve(diram_async_promise_t* promise, 
+                         diram_enhanced_allocation_t* alloc) {
+    if (!promise || !alloc) return -1;
+    
+    pthread_mutex_lock(&promise->state_mutex);
+    
+    if (promise->receipt.state != PROMISE_STATE_PENDING) {
+        pthread_mutex_unlock(&promise->state_mutex);
+        return -1;
+    }
+    
+    promise->receipt.state = PROMISE_STATE_RESOLVED;
+    promise->result.resolved_allocation = alloc;
+    
+    if (promise->on_resolve) {
+        promise->on_resolve(promise, alloc);
+    }
+    
+    pthread_cond_broadcast(&promise->state_cond);
+    pthread_mutex_unlock(&promise->state_mutex);
+    
+    return 0;
+}
+
+int diram_promise_reject(diram_async_promise_t* promise, 
+                        diram_reject_reason_t reason, 
+                        const char* msg) {
+    if (!promise) return -1;
+    
+    pthread_mutex_lock(&promise->state_mutex);
+    
+    if (promise->receipt.state != PROMISE_STATE_PENDING) {
+        pthread_mutex_unlock(&promise->state_mutex);
+        return -1;
+    }
+    
+    promise->receipt.state = PROMISE_STATE_REJECTED;
+    promise->receipt.reject_reason = reason;
+    
+    // Store rejection context
+    if (msg) {
+        strncpy(promise->result.rejection_context.message, msg, 
+                DIRAM_ERROR_MSG_SIZE - 1);
+    }
+    
+    if (promise->on_reject) {
+        promise->on_reject(promise, reason, msg);
+    }
+    
+    pthread_cond_broadcast(&promise->state_cond);
+    pthread_mutex_unlock(&promise->state_mutex);
+    
+    return 0;
+}
+
+void diram_promise_destroy(diram_async_promise_t* promise) {
+    if (!promise) return;
+    
+    pthread_mutex_destroy(&promise->state_mutex);
+    pthread_cond_destroy(&promise->state_cond);
+    
+    // Cleanup any remaining context
+    if (promise->callback_context) {
+        struct {
+            char* tag;
+            diram_memory_space_t* space;
+        }* ctx = promise->callback_context;
+        if (ctx->tag) free(ctx->tag);
+        free(promise->callback_context);
+    }
+    
+    free(promise);
+}
+
+diram_status_t diram_promise_get_status(diram_async_promise_t* promise) {
+    diram_status_t status = {DIRAM_ERROR_INVALID_ARG, 0};
+    
+    if (!promise) return status;
+    
+    pthread_mutex_lock(&promise->state_mutex);
+    
+    switch (promise->receipt.state) {
+        case PROMISE_STATE_RESOLVED:
+            status.err = DIRAM_SUCCESS;
+            status.ok = 1;
+            break;
+        case PROMISE_STATE_REJECTED:
+            switch (promise->receipt.reject_reason) {
+                case REJECT_REASON_MEMORY_EXHAUSTED:
+                    status.err = DIRAM_ERROR_MEMORY_EXHAUSTED;
+                    break;
+                case REJECT_REASON_TIMEOUT:
+                    status.err = DIRAM_ERROR_TIMEOUT;
+                    break;
+                case REJECT_REASON_CANCELLED:
+                    status.err = DIRAM_ERROR_CANCELLED;
+                    break;
+                default:
+                    status.err = DIRAM_ERROR_FATAL;
+            }
+            status.ok = 0;
+            break;
+        case PROMISE_STATE_PENDING:
+            status.err = DIRAM_ERROR_PENDING;
+            status.ok = 0;
+            break;
+        default:
+            status.err = DIRAM_ERROR_UNKNOWN;
+            status.ok = 0;
+    }
+    
+    pthread_mutex_unlock(&promise->state_mutex);
+    return status;
+}
+
+// Public async allocation API implementation
+diram_async_promise_t* diram_alloc_async(
+    size_t size,
+    const char* tag,
+    diram_memory_space_t* space,
+    size_t lookahead_hint
+) {
+    return diram_alloc_with_lookahead(size, tag, space, (uint32_t)lookahead_hint);
 }
