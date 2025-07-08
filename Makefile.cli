@@ -1,0 +1,41 @@
+# DIRAM CLI Build
+# Links against core and hotwire libraries
+
+# Include shared config
+include Makefile.config
+
+# CLI sources
+CLI_SRCS = $(SRC_DIR)/cli/main.c
+
+# Object files
+CLI_OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CLI_SRCS))
+
+# Target executable
+DIRAM_EXE = $(BIN_DIR)/diram
+
+# Link flags - using our safe library names
+LDFLAGS = -L$(LIB_DIR) -l$(CORE_LIB_NAME) -l$(HOTWIRE_LIB_NAME) -pthread -lm
+LDFLAGS += -Wl,-rpath,$(LIB_DIR)
+
+.PHONY: cli
+cli: directories $(DIRAM_EXE)
+
+.PHONY: directories
+directories:
+	@mkdir -p $(OBJ_DIR)/cli
+	@mkdir -p $(BIN_DIR)
+
+# Pattern rule
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+	@echo "[CC CLI] $<"
+	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+# Executable linking
+$(DIRAM_EXE): $(CLI_OBJS) | core hotwire
+	@echo "[LD] Linking DIRAM executable: $@"
+	@$(CC) $(CFLAGS) $(CLI_OBJS) -o $@ $(LDFLAGS)
+
+.PHONY: clean
+clean:
+	@echo "[CLEAN] CLI components"
+	@rm -f $(CLI_OBJS) $(DIRAM_EXE)

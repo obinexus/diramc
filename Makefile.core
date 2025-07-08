@@ -1,0 +1,52 @@
+# DIRAM Core Library Build
+# Builds libdiram-core.{a,so} - NOT libdiram to avoid conflicts
+
+# Include shared config
+include Makefile.config
+
+# Core sources
+CORE_SRCS = \
+    $(SRC_DIR)/core/feature-alloc/alloc.c \
+    $(SRC_DIR)/core/feature-alloc/feature_alloc.c \
+    $(SRC_DIR)/core/feature-alloc/async_promise.c \
+    $(SRC_DIR)/core/feature-alloc/cache_lookahead.c \
+    $(SRC_DIR)/core/config/config.c
+
+# Object files
+CORE_OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CORE_SRCS))
+
+# Target libraries (using safe names)
+CORE_STATIC = $(LIB_DIR)/lib$(CORE_LIB_NAME).a
+CORE_SHARED = $(LIB_DIR)/lib$(CORE_LIB_NAME).so
+CORE_SONAME = lib$(CORE_LIB_NAME).so.1
+
+# Build targets
+.PHONY: core
+core: directories $(CORE_STATIC) $(CORE_SHARED)
+
+.PHONY: directories
+directories:
+	@mkdir -p $(OBJ_DIR)/core/feature-alloc
+	@mkdir -p $(OBJ_DIR)/core/config
+	@mkdir -p $(LIB_DIR)
+
+# Pattern rules
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+	@echo "[CC CORE] $<"
+	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+# Static library
+$(CORE_STATIC): $(CORE_OBJS)
+	@echo "[AR] Building core static library: $@"
+	@$(AR) rcs $@ $^
+
+# Shared library
+$(CORE_SHARED): $(CORE_OBJS)
+	@echo "[LD] Building core shared library: $@"
+	@$(CC) -shared -Wl,-soname,$(CORE_SONAME) -o $(LIB_DIR)/$(CORE_SONAME) $^ -lpthread -lm
+	@cd $(LIB_DIR) && ln -sf $(CORE_SONAME) lib$(CORE_LIB_NAME).so
+
+.PHONY: clean
+clean:
+	@echo "[CLEAN] Core components"
+	@rm -f $(CORE_OBJS) $(CORE_STATIC) $(CORE_SHARED) $(LIB_DIR)/$(CORE_SONAME)

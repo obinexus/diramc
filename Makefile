@@ -12,6 +12,17 @@ CFLAGS_BASE += -pthread       # For pthread_mutex
 
 # Include Paths
 INCLUDES = -I./include
+# DIRAM Root Makefile - Build Orchestrator
+# OBINexus Aegis Project
+
+# Include modular components
+include Makefile.config
+include Makefile.core
+include Makefile.hotwire
+include Makefile.cli
+include Makefile.shared
+
+
 
 # Library Flags - Correct usage: -ldiram (not -llibdiram)
 LDFLAGS_CORE = -shared -pthread -lm
@@ -38,6 +49,16 @@ BIN_DIR = $(BUILD_DIR)/bin
 LIB_DIR = $(BUILD_DIR)/lib
 CONFIG_DIR = config
 
+# Default target
+all: core hotwire cli
+
+# Clean all components
+clean:
+	@$(MAKE) -f Makefile.core clean
+	@$(MAKE) -f Makefile.hotwire clean
+	@$(MAKE) -f Makefile.cli clean
+
+.PHONY: all clean core hotwire cli
 # Core Library Sources
 CORE_SRCS = $(SRC_DIR)/core/feature-alloc/alloc.c \
             $(SRC_DIR)/core/feature-alloc/feature_alloc.c \

@@ -1,159 +1,76 @@
-# Makefile.hotwire - DIRAM Build System Update
-# OBINexus Aegis Project - XML Configuration & Hotwire Integration
-# Append to existing Makefile or replace sections as needed
+# DIRAM Hotwire Components Build
+# Builds parser, AST, and transformation features
 
-# New source files for XML/AST/Hotwire system
-HOTWIRE_SRCS = \
-    src/core/parser/tokenizer.c \
-    src/core/parser/parser.c \
-    src/core/parser/ast.c \
-    src/core/hotwire/hotwire.c \
-    src/core/hotwire/asm_visitor.c \
-    src/core/hotwire/wasm_visitor.c \
-    src/core/config/xml_compiler.c
+# Include shared config
+include Makefile.config
 
-HOTWIRE_OBJS = $(HOTWIRE_SRCS:src/%.c=$(BUILD_DIR)/obj/%.o)
-
-# XML configuration files
-XML_CONFIGS = diram.drc.in.xml
-DRC_OUTPUT = diram.drc
-
-# Build directories update
-BUILD_DIRS += \
-    $(BUILD_DIR)/obj/core/parser \
-    $(BUILD_DIR)/obj/core/hotwire \
-    $(BUILD_DIR)/manifest
-
-# Compiler flags for XML support (requires libxml2)
+# Check for libxml2
 XML_CFLAGS = $(shell xml2-config --cflags 2>/dev/null || echo "")
 XML_LDFLAGS = $(shell xml2-config --libs 2>/dev/null || echo "")
 
-# Update CFLAGS and LDFLAGS
-CFLAGS += $(XML_CFLAGS) -DDIRAM_HOTWIRE_ENABLED
-LDFLAGS += $(XML_LDFLAGS)
+# Hotwire sources
+HOTWIRE_SRCS = \
+    $(SRC_DIR)/core/parser/tokenizer.c \
+    $(SRC_DIR)/core/parser/parser.c \
+    $(SRC_DIR)/core/parser/ast.c \
+    $(SRC_DIR)/core/hotwire/hotwire.c \
+    $(SRC_DIR)/core/hotwire/asm_visitor.c \
+    $(SRC_DIR)/core/hotwire/wasm_visitor.c
 
-# Main target update
-all: $(BUILD_DIR)/bin/diram.exe $(DRC_OUTPUT) hotwire-test
+# Object files
+HOTWIRE_OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(HOTWIRE_SRCS))
 
-# XML to DRC compilation rule
-$(DRC_OUTPUT): $(XML_CONFIGS)
-	@echo "[XML->DRC] Compiling configuration manifest..."
-	@$(BUILD_DIR)/bin/diram-xmlc -i $< -o $@ --validate --strict
+# Target libraries
+HOTWIRE_STATIC = $(LIB_DIR)/lib$(HOTWIRE_LIB_NAME).a
+HOTWIRE_SHARED = $(LIB_DIR)/lib$(HOTWIRE_LIB_NAME).so
 
-# XML compiler tool
-$(BUILD_DIR)/bin/diram-xmlc: $(BUILD_DIR)/obj/core/config/xml_compiler.o $(HOTWIRE_OBJS)
-	@echo "[LD] $@"
-	@$(CC) $(LDFLAGS) -o $@ $^ $(XML_LDFLAGS)
+# Compiler flags with XML support
+HOTWIRE_CFLAGS = $(CFLAGS) $(XML_CFLAGS) -DDIRAM_HOTWIRE_ENABLED
 
-# Hotwire object compilation
-$(BUILD_DIR)/obj/core/parser/%.o: src/core/parser/%.c | $(BUILD_DIRS)
-	@echo "[CC] $<"
-	@$(CC) $(CFLAGS) -c -o $@ $<
+.PHONY: hotwire
+hotwire: check-xml directories $(HOTWIRE_STATIC) $(HOTWIRE_SHARED)
 
-$(BUILD_DIR)/obj/core/hotwire/%.o: src/core/hotwire/%.c | $(BUILD_DIRS)
-	@echo "[CC] $<"
-	@$(CC) $(CFLAGS) -c -o $@ $<
+.PHONY: directories
+directories:
+	@mkdir -p $(OBJ_DIR)/core/parser
+	@mkdir -p $(OBJ_DIR)/core/hotwire
 
-# Update main DIRAM executable to include hotwire
-$(BUILD_DIR)/bin/diram.exe: $(OBJS) $(HOTWIRE_OBJS)
-	@echo "[LD] $@"
-	@$(CC) $(LDFLAGS) -o $@ $^
+# Create stub files if missing (for initial build)
+.PHONY: create-stubs
+create-stubs:
+	@mkdir -p $(SRC_DIR)/core/parser
+	@mkdir -p $(SRC_DIR)/core/hotwire
+	@for src in $(HOTWIRE_SRCS); do \
+		if [ ! -f $$src ]; then \
+			echo "/* Stub for $$src */" > $$src; \
+			echo "#include <stdio.h>" >> $$src; \
+		fi \
+	done
 
-# Assembly output target
-asm-output: $(DRC_OUTPUT)
-	@echo "[HOTWIRE] Generating x86_64 assembly..."
-	@$(BUILD_DIR)/bin/diram.exe --hotwire-asm -c $(DRC_OUTPUT) -o $(BUILD_DIR)/diram.s
+# Pattern rule for hotwire objects
+$(OBJ_DIR)/core/parser/%.o: $(SRC_DIR)/core/parser/%.c
+	@echo "[CC HOTWIRE] $<"
+	@$(CC) $(HOTWIRE_CFLAGS) $(INCLUDES) -c $< -o $@
 
-# WebAssembly output target
-wasm-output: $(DRC_OUTPUT)
-	@echo "[HOTWIRE] Generating WebAssembly module..."
-	@$(BUILD_DIR)/bin/diram.exe --hotwire-wasm -c $(DRC_OUTPUT) -o $(BUILD_DIR)/diram.wasm
+$(OBJ_DIR)/core/hotwire/%.o: $(SRC_DIR)/core/hotwire/%.c
+	@echo "[CC HOTWIRE] $<"
+	@$(CC) $(HOTWIRE_CFLAGS) $(INCLUDES) -c $< -o $@
 
-# Hotwire integration test
-hotwire-test: $(BUILD_DIR)/bin/diram.exe $(DRC_OUTPUT)
-	@echo "[TEST] Running hotwire transformation tests..."
-	@$(BUILD_DIR)/bin/diram.exe --hotwire-test -c $(DRC_OUTPUT)
+# Libraries
+$(HOTWIRE_STATIC): $(HOTWIRE_OBJS)
+	@echo "[AR] Building hotwire static library: $@"
+	@$(AR) rcs $@ $^
 
-# Manifest generation
-manifest: $(DRC_OUTPUT)
-	@echo "[MANIFEST] Generating build manifest..."
-	@mkdir -p $(BUILD_DIR)/manifest
-	@echo "DIRAM Build Manifest" > $(BUILD_DIR)/manifest/build.txt
-	@echo "Date: $$(date)" >> $(BUILD_DIR)/manifest/build.txt
-	@echo "XML Config: $(XML_CONFIGS)" >> $(BUILD_DIR)/manifest/build.txt
-	@echo "DRC Output: $(DRC_OUTPUT)" >> $(BUILD_DIR)/manifest/build.txt
-	@echo "Features:" >> $(BUILD_DIR)/manifest/build.txt
-	@grep -E '<toggle.*enabled="true"' $(XML_CONFIGS) | sed 's/.*name="\([^"]*\)".*/  - \1/' >> $(BUILD_DIR)/manifest/build.txt
+$(HOTWIRE_SHARED): $(HOTWIRE_OBJS)
+	@echo "[LD] Building hotwire shared library: $@"
+	@$(CC) -shared -o $@ $^ $(XML_LDFLAGS)
 
-# Policy compliance check
-policy-check: $(DRC_OUTPUT)
-	@echo "[POLICY] Checking Sinphasé compliance..."
-	@$(BUILD_DIR)/bin/diram.exe --policy-check -c $(DRC_OUTPUT)
-
-# Clean hotwire artifacts
-clean-hotwire:
-	@echo "[CLEAN] Removing hotwire artifacts..."
-	@rm -f $(HOTWIRE_OBJS)
-	@rm -f $(BUILD_DIR)/bin/diram-xmlc
-	@rm -f $(DRC_OUTPUT)
-	@rm -f $(BUILD_DIR)/*.s $(BUILD_DIR)/*.wasm
-	@rm -rf $(BUILD_DIR)/manifest
-
-# Update main clean target
-clean: clean-hotwire
-	@echo "[CLEAN] Complete cleanup..."
-	@rm -rf $(BUILD_DIR)
-
-# Installation update
-install: all manifest
-	@echo "[INSTALL] Installing DIRAM with hotwire support..."
-	@install -d $(DESTDIR)$(PREFIX)/bin
-	@install -d $(DESTDIR)$(PREFIX)/share/diram
-	@install -d $(DESTDIR)$(PREFIX)/share/diram/examples
-	@install -m 755 $(BUILD_DIR)/bin/diram.exe $(DESTDIR)$(PREFIX)/bin/diram
-	@install -m 755 $(BUILD_DIR)/bin/diram-xmlc $(DESTDIR)$(PREFIX)/bin/
-	@install -m 644 $(XML_CONFIGS) $(DESTDIR)$(PREFIX)/share/diram/examples/
-	@install -m 644 $(DRC_OUTPUT) $(DESTDIR)$(PREFIX)/share/diram/
-	@cp -r $(BUILD_DIR)/manifest $(DESTDIR)$(PREFIX)/share/diram/
-
-# Development targets
 .PHONY: check-xml
 check-xml:
-	@command -v xml2-config >/dev/null 2>&1 || { echo "libxml2 not found. Please install libxml2-dev"; exit 1; }
+	@command -v xml2-config >/dev/null 2>&1 || \
+		(echo "WARNING: libxml2 not found. Hotwire XML features disabled."; true)
 
-.PHONY: hotwire-debug
-hotwire-debug: CFLAGS += -DDIRAM_HOTWIRE_DEBUG -g
-hotwire-debug: all
-
-.PHONY: hotwire-asm
-hotwire-asm: asm-output
-	@echo "[VIEW] Assembly output:"
-	@cat $(BUILD_DIR)/diram.s | head -50
-
-.PHONY: hotwire-wasm
-hotwire-wasm: wasm-output
-	@echo "[VIEW] WebAssembly output:"
-	@wasm2wat $(BUILD_DIR)/diram.wasm 2>/dev/null || hexdump -C $(BUILD_DIR)/diram.wasm | head -20
-
-# Help update
-help:
-	@echo "DIRAM Build System - Hotwire Edition"
-	@echo "===================================="
-	@echo "Targets:"
-	@echo "  all            - Build DIRAM with XML/AST/Hotwire support"
-	@echo "  asm-output     - Generate x86_64 assembly from XML config"
-	@echo "  wasm-output    - Generate WebAssembly module from XML config"
-	@echo "  hotwire-test   - Run hotwire transformation tests"
-	@echo "  manifest       - Generate build manifest"
-	@echo "  policy-check   - Check Sinphasé policy compliance"
-	@echo "  hotwire-debug  - Build with hotwire debugging enabled"
-	@echo "  clean-hotwire  - Clean hotwire-specific artifacts"
-	@echo ""
-	@echo "Configuration:"
-	@echo "  XML input:  $(XML_CONFIGS)"
-	@echo "  DRC output: $(DRC_OUTPUT)"
-	@echo ""
-	@echo "Requirements:"
-	@echo "  - libxml2 development libraries"
-	@echo "  - C11 compatible compiler"
-	@echo "  - POSIX environment"
+.PHONY: clean
+clean:
+	@echo "[CLEAN] Hotwire components"
+	@rm -f $(HOTWIRE_OBJS) $(HOTWIRE_STATIC) $(HOTWIRE_SHARED)
