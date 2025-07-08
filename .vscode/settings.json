@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "stdint.h": "c",
-        "alloc.h": "c"
+        "alloc.h": "c",
+        "time.h": "c"
     }
 }

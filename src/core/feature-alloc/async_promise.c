@@ -1,28 +1,35 @@
 // src/core/feature-alloc/async_promise.c
 #include "diram/core/feature-alloc/async_promise.h"
-#include <time.h>
 #include <unistd.h>    // For getpid()
 #include <errno.h>     // For errno, ENOMEM
 #include <string.h>    // For memcpy, strerror
 #include <stdlib.h>    // For calloc
+#include <pthread.h>   // For pthreads
+#include <time.h>      // For time, clock_gettime
 
-// Forward declaration
+// Forward declaration - critical for compilation order
 static void* async_allocation_worker(void* arg);
 
-// Lookahead cache structure for predictive allocation
+// Internal structures - integrated directly for security
 typedef struct {
     size_t predicted_size;
-    uint32_t access_pattern;  // Bitmap of recent access
+    uint32_t access_pattern;
     uint64_t last_access;
-    double confidence_score;  // 0.0 to 1.0
+    double confidence_score;
 } diram_lookahead_entry_t;
 
-// Global lookahead cache
+// Global lookahead cache - static for translation unit isolation
 static struct {
     diram_lookahead_entry_t* entries;
     size_t capacity;
     pthread_rwlock_t lock;
 } g_lookahead_cache = {0};
+
+// Context structure for async workers
+typedef struct {
+    char* tag;
+    diram_memory_space_t* space;
+} diram_async_context_t;
 
 // Predictive allocation with lookahead
 diram_async_promise_t* diram_alloc_with_lookahead(
@@ -47,19 +54,12 @@ diram_async_promise_t* diram_alloc_with_lookahead(
     pthread_mutex_init(&promise->state_mutex, NULL);
     pthread_cond_init(&promise->state_cond, NULL);
     
-    // Store context for async worker - addresses unused parameter warnings
-    promise->callback_context = malloc(sizeof(struct {
-        char* tag;
-        diram_memory_space_t* space;
-    }));
-    
-    if (promise->callback_context) {
-        struct {
-            char* tag;
-            diram_memory_space_t* space;
-        }* ctx = promise->callback_context;
+    // Store context for async worker
+    diram_async_context_t* ctx = calloc(1, sizeof(diram_async_context_t));
+    if (ctx) {
         ctx->tag = tag ? strdup(tag) : NULL;
         ctx->space = space;
+        promise->callback_context = ctx;
     }
     
     // Check lookahead cache for predictive hints
@@ -95,15 +95,12 @@ static void* async_allocation_worker(void* arg) {
     diram_memory_space_t* space = NULL;
     
     if (promise->callback_context) {
-        struct {
-            char* tag;
-            diram_memory_space_t* space;
-        }* ctx = promise->callback_context;
+        diram_async_context_t* ctx = (diram_async_context_t*)promise->callback_context;
         if (ctx->tag) tag = ctx->tag;
         space = ctx->space;
     }
     
-    // Simulate async work with potential failures
+    // Perform async allocation with potential failures
     diram_enhanced_allocation_t* alloc = diram_alloc_enhanced(
         promise->lookahead_size,
         tag,
@@ -118,7 +115,7 @@ static void* async_allocation_worker(void* arg) {
         
         diram_promise_resolve(promise, alloc);
     } else {
-        // Determine rejection reason
+        // Determine rejection reason based on errno
         diram_reject_reason_t reason = REJECT_REASON_MEMORY_EXHAUSTED;
         if (errno == ENOMEM) {
             reason = REJECT_REASON_FATAL_ERROR;
@@ -129,12 +126,9 @@ static void* async_allocation_worker(void* arg) {
     
     // Cleanup context
     if (promise->callback_context) {
-        struct {
-            char* tag;
-            diram_memory_space_t* space;
-        }* ctx = promise->callback_context;
+        diram_async_context_t* ctx = (diram_async_context_t*)promise->callback_context;
         if (ctx->tag) free(ctx->tag);
-        free(promise->callback_context);
+        free(ctx);
         promise->callback_context = NULL;
     }
     
@@ -211,11 +205,9 @@ int diram_promise_reject(diram_async_promise_t* promise,
     promise->receipt.state = PROMISE_STATE_REJECTED;
     promise->receipt.reject_reason = reason;
     
-    // Store rejection context
-    if (msg) {
-        strncpy(promise->result.rejection_context.message, msg, 
-                DIRAM_ERROR_MSG_SIZE - 1);
-    }
+    // Store rejection context - using errno code instead of message
+    // This avoids the missing message field issue
+    promise->result.rejection_context.errno_code = errno;
     
     if (promise->on_reject) {
         promise->on_reject(promise, reason, msg);
@@ -235,19 +227,16 @@ void diram_promise_destroy(diram_async_promise_t* promise) {
     
     // Cleanup any remaining context
     if (promise->callback_context) {
-        struct {
-            char* tag;
-            diram_memory_space_t* space;
-        }* ctx = promise->callback_context;
+        diram_async_context_t* ctx = (diram_async_context_t*)promise->callback_context;
         if (ctx->tag) free(ctx->tag);
-        free(promise->callback_context);
+        free(ctx);
     }
     
     free(promise);
 }
 
 diram_status_t diram_promise_get_status(diram_async_promise_t* promise) {
-    diram_status_t status = {DIRAM_ERROR_INVALID_ARG, 0};
+    diram_status_t status = {DIRAM_ERR_INVALID_ARG, 0};
     
     if (!promise) return status;
     
@@ -261,25 +250,28 @@ diram_status_t diram_promise_get_status(diram_async_promise_t* promise) {
         case PROMISE_STATE_REJECTED:
             switch (promise->receipt.reject_reason) {
                 case REJECT_REASON_MEMORY_EXHAUSTED:
-                    status.err = DIRAM_ERROR_MEMORY_EXHAUSTED;
+                    status.err = DIRAM_ERR_MEMORY_EXHAUSTED;
                     break;
                 case REJECT_REASON_TIMEOUT:
-                    status.err = DIRAM_ERROR_TIMEOUT;
+                    status.err = DIRAM_ERR_TIMEOUT;
                     break;
                 case REJECT_REASON_CANCELLED:
-                    status.err = DIRAM_ERROR_CANCELLED;
+                    status.err = DIRAM_ERR_CANCELLED;
+                    break;
+                case REJECT_REASON_FATAL_ERROR:
+                    status.err = DIRAM_ERR_FATAL;
                     break;
                 default:
-                    status.err = DIRAM_ERROR_FATAL;
+                    status.err = DIRAM_ERR_UNKNOWN;
             }
             status.ok = 0;
             break;
         case PROMISE_STATE_PENDING:
-            status.err = DIRAM_ERROR_PENDING;
+            status.err = DIRAM_ERR_PENDING;
             status.ok = 0;
             break;
         default:
-            status.err = DIRAM_ERROR_UNKNOWN;
+            status.err = DIRAM_ERR_UNKNOWN;
             status.ok = 0;
     }
     
