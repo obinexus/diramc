@@ -1,7 +1,7 @@
-# DIRAM Hotwire Components Build
-# Builds parser, AST, and transformation features
+# DIRAM Hotwire Components + Final Library Build
+# Builds parser/AST/hotwire objects AND creates libdiram.{a,so}
 
-# Include shared config
+# Get configuration
 include Makefile.config
 
 # Check for libxml2
@@ -20,23 +20,31 @@ HOTWIRE_SRCS = \
 # Object files
 HOTWIRE_OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(HOTWIRE_SRCS))
 
-# Target libraries
-HOTWIRE_STATIC = $(LIB_DIR)/lib$(HOTWIRE_LIB_NAME).a
-HOTWIRE_SHARED = $(LIB_DIR)/lib$(HOTWIRE_LIB_NAME).so
+# Get core objects from core build
+CORE_OBJS = $(OBJ_DIR)/core/feature-alloc/alloc.o \
+            $(OBJ_DIR)/core/feature-alloc/feature_alloc.o \
+            $(OBJ_DIR)/core/feature-alloc/async_promise.o \
+            $(OBJ_DIR)/core/feature-alloc/cache_lookahead.o \
+            $(OBJ_DIR)/core/config/config.o
+
+# Combined objects for final library
+ALL_OBJS = $(CORE_OBJS) $(HOTWIRE_OBJS)
+
+# Target libraries - Unix compliant naming
+LIBDIRAM_STATIC = $(LIB_DIR)/lib$(DIRAM_LIB_NAME).a
+LIBDIRAM_SHARED = $(LIB_DIR)/lib$(DIRAM_LIB_NAME).so
 
 # Compiler flags with XML support
 HOTWIRE_CFLAGS = $(CFLAGS) $(XML_CFLAGS) -DDIRAM_HOTWIRE_ENABLED
 
-.PHONY: hotwire
-hotwire: check-xml directories $(HOTWIRE_STATIC) $(HOTWIRE_SHARED)
+hotwire: check-xml hotwire-directories create-stubs $(HOTWIRE_OBJS) $(LIBDIRAM_STATIC) $(LIBDIRAM_SHARED)
+	@echo "[HOTWIRE] Build complete"
 
-.PHONY: directories
-directories:
+hotwire-directories:
 	@mkdir -p $(OBJ_DIR)/core/parser
 	@mkdir -p $(OBJ_DIR)/core/hotwire
+	@mkdir -p $(LIB_DIR)
 
-# Create stub files if missing (for initial build)
-.PHONY: create-stubs
 create-stubs:
 	@mkdir -p $(SRC_DIR)/core/parser
 	@mkdir -p $(SRC_DIR)/core/hotwire
@@ -44,10 +52,11 @@ create-stubs:
 		if [ ! -f $$src ]; then \
 			echo "/* Stub for $$src */" > $$src; \
 			echo "#include <stdio.h>" >> $$src; \
+			echo "// TODO: Implement" >> $$src; \
 		fi \
 	done
 
-# Pattern rule for hotwire objects
+# Pattern rules for hotwire objects
 $(OBJ_DIR)/core/parser/%.o: $(SRC_DIR)/core/parser/%.c
 	@echo "[CC HOTWIRE] $<"
 	@$(CC) $(HOTWIRE_CFLAGS) $(INCLUDES) -c $< -o $@
@@ -56,21 +65,22 @@ $(OBJ_DIR)/core/hotwire/%.o: $(SRC_DIR)/core/hotwire/%.c
 	@echo "[CC HOTWIRE] $<"
 	@$(CC) $(HOTWIRE_CFLAGS) $(INCLUDES) -c $< -o $@
 
-# Libraries
-$(HOTWIRE_STATIC): $(HOTWIRE_OBJS)
-	@echo "[AR] Building hotwire static library: $@"
+# Final library builds - Unix compliant libdiram.{a,so}
+$(LIBDIRAM_STATIC): $(ALL_OBJS)
+	@echo "[AR] Building static library: $@"
 	@$(AR) rcs $@ $^
 
-$(HOTWIRE_SHARED): $(HOTWIRE_OBJS)
-	@echo "[LD] Building hotwire shared library: $@"
-	@$(CC) -shared -o $@ $^ $(XML_LDFLAGS)
+$(LIBDIRAM_SHARED): $(ALL_OBJS)
+	@echo "[LD] Building shared library: $@"
+	@$(CC) -shared -Wl,-soname,$(SONAME) -o $(LIB_DIR)/$(SONAME) $^ -lpthread -lm $(XML_LDFLAGS)
+	@cd $(LIB_DIR) && ln -sf $(SONAME) lib$(DIRAM_LIB_NAME).so
 
-.PHONY: check-xml
 check-xml:
 	@command -v xml2-config >/dev/null 2>&1 || \
 		(echo "WARNING: libxml2 not found. Hotwire XML features disabled."; true)
 
-.PHONY: clean
 clean:
-	@echo "[CLEAN] Hotwire components"
-	@rm -f $(HOTWIRE_OBJS) $(HOTWIRE_STATIC) $(HOTWIRE_SHARED)
+	@echo "[CLEAN] Hotwire components and libraries"
+	@rm -f $(HOTWIRE_OBJS) $(LIBDIRAM_STATIC) $(LIBDIRAM_SHARED) $(LIB_DIR)/$(SONAME)
+
+.PHONY: hotwire hotwire-directories create-stubs check-xml clean
