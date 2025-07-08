@@ -2,10 +2,19 @@
 #include "diram/core/feature-alloc/async_promise.h"
 #include <unistd.h>    // For getpid()
 #include <errno.h>     // For errno, ENOMEM
-#include <string.h>    // For memcpy, strerror
+#include <string.h>    // For memcpy, strerror, strncpy
 #include <stdlib.h>    // For calloc
 #include <pthread.h>   // For pthreads
 #include <time.h>      // For time, clock_gettime
+
+// Extension error codes for async promises (0x100B onwards)
+#define DIRAM_ERR_TIMEOUT        0x100B
+#define DIRAM_ERR_CANCELLED      0x100C
+#define DIRAM_ERR_PENDING        0x100D
+#define DIRAM_ERR_INVALID_ARG    0x100E
+#define DIRAM_ERR_FATAL          0x100F
+#define DIRAM_ERR_UNKNOWN        0x1010
+#define DIRAM_SUCCESS            DIRAM_ERR_NONE
 
 // Forward declaration - critical for compilation order
 static void* async_allocation_worker(void* arg);
@@ -205,9 +214,22 @@ int diram_promise_reject(diram_async_promise_t* promise,
     promise->receipt.state = PROMISE_STATE_REJECTED;
     promise->receipt.reject_reason = reason;
     
-    // Store rejection context - using errno code instead of message
-    // This avoids the missing message field issue
-    promise->result.rejection_context.errno_code = errno;
+    // Store rejection context using the actual fields
+    promise->result.rejection_context.code = DIRAM_ERR_MEMORY_EXHAUSTED; // Map to existing codes
+    promise->result.rejection_context.timestamp = time(NULL);
+    promise->result.rejection_context.pid = getpid();
+    promise->result.rejection_context.file = __FILE__;
+    promise->result.rejection_context.line = __LINE__;
+    
+    // Use context field for message
+    if (msg) {
+        strncpy(promise->result.rejection_context.context, msg, 
+                sizeof(promise->result.rejection_context.context) - 1);
+        promise->result.rejection_context.context[sizeof(promise->result.rejection_context.context) - 1] = '\0';
+    }
+    
+    // Set severity based on reason
+    promise->result.rejection_context.severity = (reason == REJECT_REASON_FATAL_ERROR) ? 3 : 2;
     
     if (promise->on_reject) {
         promise->on_reject(promise, reason, msg);
@@ -260,6 +282,9 @@ diram_status_t diram_promise_get_status(diram_async_promise_t* promise) {
                     break;
                 case REJECT_REASON_FATAL_ERROR:
                     status.err = DIRAM_ERR_FATAL;
+                    break;
+                case REJECT_REASON_GOVERNANCE_VIOLATION:
+                    status.err = DIRAM_ERR_GOVERNANCE_FAIL;
                     break;
                 default:
                     status.err = DIRAM_ERR_UNKNOWN;
