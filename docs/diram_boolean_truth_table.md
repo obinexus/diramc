@@ -1,147 +1,141 @@
-# DIRAM Boolean Logic Truth Table - Memory Management Gates
+# DIRAM Memory Persistence Truth Table - OR Gate Logic
 
-## OBINexus Aegis Project | Directed Instruction RAM
-**Governance Constraint**: ε(x) ≤ 0.5 | **Binary Logic**: 2-Input, 1-Output
-
----
-
-## ⚙️ Logic Gate Truth Table Breakdown
-
-Here we're looking at how binary inputs transform into actionable output using gates like NOT and XOR:
-
-| Input A | Input B | NOT A | A XOR B | Final Output |
-|---------|---------|-------|---------|--------------|
-| 0       | 0       | 1     | 0       | **1**        |
-| 0       | 1       | 1     | 1       | **0**        |
-| 1       | 0       | 0     | 1       | **1**        |
-| 1       | 1       | 0     | 0       | **0**        |
+## OBINexus Aegis Project | Memory Retention System
+**MEMORY RULE**: If ANY 1 exists, it persists in RAM until evicted
 
 ---
 
-## 🧠 Memory Management + Binary State
+## 🔧 CORRECTED Logic Gate Diagram - OR Gate
+
+```
+Input A ──┐
+          ├─── OR Gate ─── Final Output (Memory Persist)
+Input B ──┘
+```
+
+**Memory Logic**: A OR B = If ANY input is 1, memory retains it as 1
+
+---
+
+## ⚙️ OR Gate Truth Table - Memory Persistence
+
+### Case 1: A=0, B=0
+```
+Input A = 0 (no memory signal)
+Input B = 0 (no governance signal)
+A OR B = 0 OR 0 = 0
+Final Output = 0 ❌ (No memory retention)
+```
+
+### Case 2: A=0, B=1  
+```
+Input A = 0 (no memory signal)
+Input B = 1 (governance active)
+A OR B = 0 OR 1 = 1
+Final Output = 1 ✅ (Memory persists due to B)
+```
+
+### Case 3: A=1, B=0
+```
+Input A = 1 (memory signal active)
+Input B = 0 (no governance)
+A OR B = 1 OR 0 = 1
+Final Output = 1 ✅ (Memory persists due to A)
+```
+
+### Case 4: A=1, B=1
+```
+Input A = 1 (memory signal active)
+Input B = 1 (governance active)
+A OR B = 1 OR 1 = 1
+Final Output = 1 ✅ (Memory persists - both signals)
+```
+
+---
+
+## 📊 MEMORY PERSISTENCE Truth Table
+
+| Input A | Input B | A OR B | Final Output | Memory State |
+|---------|---------|--------|--------------|--------------|
+| 0       | 0       | 0      | **0**        | No Retention |
+| 0       | 1       | 1      | **1**        | Persist      |
+| 1       | 0       | 1      | **1**        | Persist      |
+| 1       | 1       | 1      | **1**        | Persist      |
+
+**Output Pattern**: 0, 1, 1, 1 ✅
+
+---
+
+## 🧠 DIRAM Memory Retention Logic
+
+**Memory Rule**: **ANY 1 = PERSIST IN RAM**
 
 **Input Definitions:**
-- **Input A**: Cache State (0 = Cache Miss, 1 = Cache Hit)
-- **Input B**: Governance State (0 = ε≤0.5 Compliant, 1 = ε>0.5 Violation)
-- **Final Output**: Memory Action (0 = Block/Defer, 1 = Allow/Process)
+- **Input A**: Memory Data Signal (0 = No Data, 1 = Data Present)
+- **Input B**: System State Signal (0 = Idle, 1 = Active)
+- **Final Output**: RAM Retention (0 = Evict, 1 = Keep in Memory)
 
-### Truth Table Logic Explanation:
+### Memory Behavior:
 
-**Row 1: A=0, B=0** → Cache Miss + Compliant
-- NOT A = 1 (miss requires action)
-- XOR = 0 (both inputs low)
-- **Output = 1** ✅ **Allow**: Cache miss with good governance → Fetch data, update cache
+**Case 1: A=0, B=0** → No Data + System Idle
+- **Output = 0** → **EVICT** from RAM (nothing to keep)
 
-**Row 2: A=0, B=1** → Cache Miss + Violation  
-- NOT A = 1 (miss requires action)
-- XOR = 1 (inputs differ)
-- **Output = 0** ❌ **Block**: Cache miss during constraint violation → Defer allocation
+**Case 2: A=0, B=1** → No Data + System Active  
+- **Output = 1** → **PERSIST** (system activity keeps memory warm)
 
-**Row 3: A=1, B=0** → Cache Hit + Compliant
-- NOT A = 0 (hit needs no extra action)
-- XOR = 1 (inputs differ) 
-- **Output = 1** ✅ **Allow**: Cache hit with good governance → Process immediately
+**Case 3: A=1, B=0** → Data Present + System Idle
+- **Output = 1** → **PERSIST** (data exists, keep in RAM)
 
-**Row 4: A=1, B=1** → Cache Hit + Violation
-- NOT A = 0 (hit needs no extra action)
-- XOR = 0 (both inputs high)
-- **Output = 0** ❌ **Block**: Even cache hits blocked during severe violations
+**Case 4: A=1, B=1** → Data Present + System Active
+- **Output = 1** → **PERSIST** (both signals confirm retention)
 
 ---
 
-## 🔁 Cache Hits vs Misses (Lookahead Memory Logic)
+## 🔍 Memory Flow Analysis
 
-When your system needs data, it looks in cache first (like a quick-access drawer). Two things can happen:
+```
+Memory Flow: IF (A=1 OR B=1) THEN RAM_PERSIST = TRUE
+```
 
-### Cache Hit 🟢 
-The needed data is already there—no extra fetch needed. System stays fast.
-- **Example**: Permitted data is preloaded and the signal finds it instantly
-- **Triggers Update**: Memory confirms access, adjusts state, nudges related predictions
-- **LRU/MRU Action**: Promotes accessed item to Most Recently Used
+**Key Insight**: Memory persists if **ANY condition is true**:
+- Data exists (A=1) 
+- System is active (B=1)
+- Both conditions (A=1, B=1)
 
-### Cache Miss 🔴 
-The drawer's empty! Now the system must dig deeper (main memory or disk).
-- **Data wasn't updated** into cache beforehand, so no immediate response
-- **Lookup fails**, slowing things down until fresh info loads  
-- **LRU Action**: Must evict Least Recently Used item to make space
-
-### Lookahead Hardware Prediction
-Tries to predict future cache needs—preloading data it suspects the system will ask for. If prediction aligns, more hits happen.
+**Only evicts when**: Both A=0 AND B=0 (completely idle state)
 
 ---
 
-## 🎯 Governance Constraint: ε(x) ≤ 0.5
-
-**Sinphasé Governance Model:**
-```c
-bool diram_check_sinphase_compliance(uint8_t heap_events, uint8_t max_events) {
-    double epsilon = (double)heap_events / (double)max_events;
-    return epsilon <= 0.5;  // Updated constraint (not 0.6)
-}
-```
-
-**Governance States:**
-- **B = 0**: ε ≤ 0.5 → System running within safe memory allocation limits
-- **B = 1**: ε > 0.5 → Too many heap events, system must throttle allocations
-
----
-
-## 📊 Memory Hardware Address Layout
-
-The gates act like **checkpoints**: deciding when binary info should be stored, passed through, or flipped.
-
-### LRU (Least Recently Used) Logic:
-```
-Cache Full? → Need Eviction → Check LRU Chain → Remove Oldest
-```
-
-### MRU (Most Recently Used) Logic:  
-```
-Cache Hit? → Promote Item → Move to MRU Position → Update Chain
-```
-
-### DIRAM Traceable Cache:
-- **Cache hit** often aligns with predictable output patterns (like repeated 1s)
-- **Cache miss** comes from unpredictable or rare signal paths—where XOR flips unexpectedly or NOT cancels out expected inputs
-- **SHA-256 receipts** generated for every cache operation
-- **Lookahead prediction** uses confidence scoring to preload likely data
-
----
-
-## 🔧 Hardware Implementation
+## 🏗️ Hardware Implementation
 
 ```c
 #include "diram"
 
-// Binary decision function
-uint8_t diram_memory_gate(uint8_t cache_state, uint8_t governance_state) {
-    uint8_t not_a = !cache_state;
-    uint8_t xor_ab = cache_state ^ governance_state;
-    
-    // Truth table logic: various combinations based on requirements
-    return (not_a && !xor_ab) || (!not_a && xor_ab);
+uint8_t diram_memory_persist(uint8_t data_signal, uint8_t system_state) {
+    // OR gate: persist if ANY signal is active
+    return data_signal || system_state;
+}
+
+// Memory retention logic
+void diram_update_memory(uint8_t* ram_cell, uint8_t persist_signal) {
+    if (persist_signal == 1) {
+        // Keep data in RAM - no eviction
+        *ram_cell = *ram_cell;  // Maintain current state
+    } else {
+        // Evict from RAM
+        *ram_cell = 0;  // Clear memory
+    }
 }
 ```
 
-### Cache Layout for New Algorithms:
-- **Address tracing**: Hardware can see cache layout patterns
-- **LRU/MRU transitions**: Binary decisions based on access patterns  
-- **Predictive allocation**: Uses historical patterns to forecast future needs
-- **Governance enforcement**: ε(x) ≤ 0.5 constraint checked at hardware level
-
 ---
 
-## 🏗️ Memory Evolution: Random → Directed
+## 🎯 DIRAM Memory Philosophy
 
-**Traditional RAM**: Passive storage responding to requests
-**DIRAM**: Active memory making intelligent decisions based on:
-- Binary logic gates for fast decision-making
-- Cache hit/miss prediction patterns
-- Governance constraints preventing resource exhaustion
-- Cryptographic traceability for security
+**"If a flow of 1 exists, it persists in RAM until literally evicted"**
 
-The truth table shows how **2 simple binary inputs** can create sophisticated memory management behavior through careful logic gate design.
+The OR gate ensures that **ANY active signal (1)** keeps memory alive. Only when **ALL signals are 0** does the system allow eviction.
 
----
+This creates **persistent memory behavior** where data stays in RAM as long as there's any reason to keep it (data presence OR system activity).
 
-**Result**: Memory that doesn't just store—it **thinks, predicts, and governs** its own allocation patterns using boolean logic as the foundation.
+**Output Pattern Confirmed**: 0, 1, 1, 1 ✅
