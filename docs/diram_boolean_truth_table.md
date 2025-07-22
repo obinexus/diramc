@@ -1,141 +1,115 @@
-# DIRAM Memory Persistence Truth Table - OR Gate Logic
+# DIRAM Logic Gate Circuit - XOR + NOT Configuration
 
-## OBINexus Aegis Project | Memory Retention System
-**MEMORY RULE**: If ANY 1 exists, it persists in RAM until evicted
+## OBINexus Aegis Project | Hardware Gate Circuit Analysis
+**Circuit**: Input A → NOT Gate → (NOT A) → XOR Gate ← Input B → Final Output
 
 ---
 
-## 🔧 CORRECTED Logic Gate Diagram - OR Gate
+## 🔧 Actual Hardware Circuit Diagram
 
 ```
 Input A ──┐
-          ├─── OR Gate ─── Final Output (Memory Persist)
-Input B ──┘
+          ├─── NOT Gate ─── (NOT A) ──┐
+                                      ├─── XOR Gate ─── Final Output
+Input B ──────────────────────────────┘
 ```
 
-**Memory Logic**: A OR B = If ANY input is 1, memory retains it as 1
+**Hardware Flow**: 
+1. Input A passes through NOT gate → (NOT A)
+2. (NOT A) and Input B feed into XOR gate
+3. XOR gate produces Final Output
 
 ---
 
-## ⚙️ OR Gate Truth Table - Memory Persistence
+## ⚙️ Step-by-Step Circuit Tracing
 
 ### Case 1: A=0, B=0
 ```
-Input A = 0 (no memory signal)
-Input B = 0 (no governance signal)
-A OR B = 0 OR 0 = 0
-Final Output = 0 ❌ (No memory retention)
+Input A = 0
+Step 1: NOT Gate → NOT A = NOT(0) = 1
+Input B = 0
+Step 2: XOR Gate → (NOT A) XOR B = 1 XOR 0 = 1
+Final Output = 1 ✅
 ```
 
 ### Case 2: A=0, B=1  
 ```
-Input A = 0 (no memory signal)
-Input B = 1 (governance active)
-A OR B = 0 OR 1 = 1
-Final Output = 1 ✅ (Memory persists due to B)
+Input A = 0
+Step 1: NOT Gate → NOT A = NOT(0) = 1
+Input B = 1
+Step 2: XOR Gate → (NOT A) XOR B = 1 XOR 1 = 0
+Final Output = 0 ✅
 ```
 
 ### Case 3: A=1, B=0
 ```
-Input A = 1 (memory signal active)
-Input B = 0 (no governance)
-A OR B = 1 OR 0 = 1
-Final Output = 1 ✅ (Memory persists due to A)
+Input A = 1
+Step 1: NOT Gate → NOT A = NOT(1) = 0
+Input B = 0
+Step 2: XOR Gate → (NOT A) XOR B = 0 XOR 0 = 0
+Final Output = 0 ✅
 ```
 
 ### Case 4: A=1, B=1
 ```
-Input A = 1 (memory signal active)
-Input B = 1 (governance active)
-A OR B = 1 OR 1 = 1
-Final Output = 1 ✅ (Memory persists - both signals)
+Input A = 1
+Step 1: NOT Gate → NOT A = NOT(1) = 0
+Input B = 1
+Step 2: XOR Gate → (NOT A) XOR B = 0 XOR 1 = 1
+Final Output = 1 ✅
 ```
 
 ---
 
-## 📊 MEMORY PERSISTENCE Truth Table
+## 📊 COMPLETE TRUTH TABLE
 
-| Input A | Input B | A OR B | Final Output | Memory State |
-|---------|---------|--------|--------------|--------------|
-| 0       | 0       | 0      | **0**        | No Retention |
-| 0       | 1       | 1      | **1**        | Persist      |
-| 1       | 0       | 1      | **1**        | Persist      |
-| 1       | 1       | 1      | **1**        | Persist      |
+| Input A | Input B | NOT A | (NOT A) XOR B | Final Output |
+|---------|---------|-------|---------------|--------------|
+| 0       | 0       | 1     | 1             | **1**        |
+| 0       | 1       | 1     | 0             | **0**        |
+| 1       | 0       | 0     | 0             | **0**        |
+| 1       | 1       | 0     | 1             | **1**        |
 
-**Output Pattern**: 0, 1, 1, 1 ✅
-
----
-
-## 🧠 DIRAM Memory Retention Logic
-
-**Memory Rule**: **ANY 1 = PERSIST IN RAM**
-
-**Input Definitions:**
-- **Input A**: Memory Data Signal (0 = No Data, 1 = Data Present)
-- **Input B**: System State Signal (0 = Idle, 1 = Active)
-- **Final Output**: RAM Retention (0 = Evict, 1 = Keep in Memory)
-
-### Memory Behavior:
-
-**Case 1: A=0, B=0** → No Data + System Idle
-- **Output = 0** → **EVICT** from RAM (nothing to keep)
-
-**Case 2: A=0, B=1** → No Data + System Active  
-- **Output = 1** → **PERSIST** (system activity keeps memory warm)
-
-**Case 3: A=1, B=0** → Data Present + System Idle
-- **Output = 1** → **PERSIST** (data exists, keep in RAM)
-
-**Case 4: A=1, B=1** → Data Present + System Active
-- **Output = 1** → **PERSIST** (both signals confirm retention)
+**Output Pattern**: 1, 0, 0, 1 ✅
 
 ---
 
-## 🔍 Memory Flow Analysis
+## 🧠 Hardware Gate Behavior
 
-```
-Memory Flow: IF (A=1 OR B=1) THEN RAM_PERSIST = TRUE
-```
+**NOT Gate (Input A):**
+- Opens when A=0 → Output=1 (gate passes inverted signal)
+- Closes when A=1 → Output=0 (gate blocks signal)
 
-**Key Insight**: Memory persists if **ANY condition is true**:
-- Data exists (A=1) 
-- System is active (B=1)
-- Both conditions (A=1, B=1)
+**XOR Gate (NOT A + Input B):**
+- Opens when inputs differ → Output=1
+- Closes when inputs same → Output=0
 
-**Only evicts when**: Both A=0 AND B=0 (completely idle state)
+**Circuit Logic:**
+- **A=0, B=0**: NOT opens (1), XOR sees (1,0) → different → **Output=1**
+- **A=0, B=1**: NOT opens (1), XOR sees (1,1) → same → **Output=0**  
+- **A=1, B=0**: NOT closes (0), XOR sees (0,0) → same → **Output=0**
+- **A=1, B=1**: NOT closes (0), XOR sees (0,1) → different → **Output=1**
+
+---
+
+## 🔍 Memory Application
+
+This creates a **selective memory pattern**:
+- Allows memory operations when: A=0 (cache miss) OR A=1 with B=1 (cache hit + active system)
+- Blocks memory operations when: A=0 with B=1 (miss during violation) OR A=1 with B=0 (hit during idle)
+
+The circuit acts like a **conditional gate** that opens/closes based on specific combinations of memory state and system activity.
 
 ---
 
 ## 🏗️ Hardware Implementation
 
 ```c
-#include "diram"
-
-uint8_t diram_memory_persist(uint8_t data_signal, uint8_t system_state) {
-    // OR gate: persist if ANY signal is active
-    return data_signal || system_state;
-}
-
-// Memory retention logic
-void diram_update_memory(uint8_t* ram_cell, uint8_t persist_signal) {
-    if (persist_signal == 1) {
-        // Keep data in RAM - no eviction
-        *ram_cell = *ram_cell;  // Maintain current state
-    } else {
-        // Evict from RAM
-        *ram_cell = 0;  // Clear memory
-    }
+uint8_t diram_circuit_gate(uint8_t input_a, uint8_t input_b) {
+    uint8_t not_a = !input_a;           // NOT gate on input A
+    uint8_t final_output = not_a ^ input_b;  // XOR gate
+    return final_output;
 }
 ```
 
----
-
-## 🎯 DIRAM Memory Philosophy
-
-**"If a flow of 1 exists, it persists in RAM until literally evicted"**
-
-The OR gate ensures that **ANY active signal (1)** keeps memory alive. Only when **ALL signals are 0** does the system allow eviction.
-
-This creates **persistent memory behavior** where data stays in RAM as long as there's any reason to keep it (data presence OR system activity).
-
-**Output Pattern Confirmed**: 0, 1, 1, 1 ✅
+**Is this the correct circuit pattern you wanted?** The gates open/close to create the **1, 0, 0, 1** output pattern.
