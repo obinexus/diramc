@@ -1,0 +1,38 @@
+name: Auto-Tag Stable Builds
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'include/**'
+      - 'src/**'
+      - 'Makefile'
+      - 'test/**'
+
+jobs:
+  tag-stable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y bc openssl
+      
+      - name: Install Git-RAF
+        run: |
+          chmod +x tools/git-raf
+          sudo cp tools/git-raf /usr/local/bin/
+          git-raf --init-config
+      
+      - name: Build Release
+        run: make release
+      
+      - name: Auto-Tag if Stable
+        run: git-raf --tag
+        env:
+          GIT_RAF_SIGN: true
+      
+      - name: Push tags
+        if: success()
+        run: git push origin --tags
