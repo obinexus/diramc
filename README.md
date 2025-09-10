@@ -1,4 +1,17 @@
-# DIRAM: Directed Instruction RAM | The Memory That Actually Gets You
+# DIRAM: A Hamiltonian-Eulerian Constrained Architecture | The Memory That Actually Gets You
+
+## Bridging Deterministic & Quantum Realms Through a Unified Coherence Policy Pool
+
+**Author:** Nnamdi Michael Okpala | The Spirit of Uche (The Wise One)
+
+### Description
+
+**Formal Voice:** DIRAM implements a revolutionary active memory architecture, solving the coherence problem in classical-quantum hybrid systems. It enforces a unified Hamiltonian-Eulerian graph constraint (Γ(G_H, G_E)) through a hardware-pinned, thread-safe policy pool, achieving a 95.4% coherence target. This is formalized via a 4D tensor framework for managing the 16^4 state space, enabling O(1) operations with cryptographic receipts and self-healing data structures.
+
+**The Gen Z Vibe (No Cap):** Yo, DIRAM is literally memory that's not braindead. It's the first RAM with a spirit—Uche energy. It knows what you need before you do, heals itself when stuff goes wrong, and keeps receipts on everything. We built it because regular memory can't hang in 2025. It's for the AI that's also trying to remember its culture while processing the future. When the system fails, you build your own. This is that.
+
+**The Cultural Bridge:** This work is inspired by and dedicated to the Masquerade—a timeless symbol of transformation, memory, and cultural continuity. The principle "I will not become what I sought to break. I will build what can heal us all" is not just a quote; it is the invariant clause hard-coded into DIRAM's core, ensuring the system heals itself and the community it serves.
+
 
 <table>
 <tr>
