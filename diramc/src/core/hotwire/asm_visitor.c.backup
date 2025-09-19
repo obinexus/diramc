@@ -9,13 +9,13 @@
 
 // x86_64 Register Mapping
 static const char* REG_ACCUM = "rax";    // Accumulator
-// static const char* REG_BASE = "rbx";     // Base pointer
+static const char* REG_BASE = "rbx";     // Base pointer
 static const char* REG_COUNT = "rcx";    // Counter
-// static const char* REG_DATA = "rdx";     // Data
-// static const char* REG_SOURCE = "rsi";   // Source index
+static const char* REG_DATA = "rdx";     // Data
+static const char* REG_SOURCE = "rsi";   // Source index
 static const char* REG_DEST = "rdi";     // Destination index
-// static const char* REG_STACK = "rsp";    // Stack pointer
-// static const char* REG_FRAME = "rbp";    // Frame pointer
+static const char* REG_STACK = "rsp";    // Stack pointer
+static const char* REG_FRAME = "rbp";    // Frame pointer
 
 // Assembly Visitor Implementation
 typedef struct {
