@@ -1,17 +1,10 @@
-// Only include the alloc header, not bootstrap
-#include "diram/core/feature-alloc/alloc.h"
+#include "diram/core/diram.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <unistd.h>
-#include <fcntl.h>
 
 #ifdef _WIN32
 #include <windows.h>
-#include <time.h>
-#ifndef CLOCK_MONOTONIC
-#define CLOCK_MONOTONIC 1
-#endif
 static int clock_gettime(int clk_id, struct timespec* ts) {
     LARGE_INTEGER freq, count;
     QueryPerformanceFrequency(&freq);
@@ -22,15 +15,12 @@ static int clock_gettime(int clk_id, struct timespec* ts) {
 }
 #else
 #include <time.h>
-#include <sys/file.h>
 #endif
 
-// Thread-local storage for heap event constraints
 static __thread diram_heap_context_t heap_ctx = {0, 0};
 static FILE* trace_log = NULL;
 static pthread_mutex_t trace_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// SHA-256 implementation (simplified)
 static void sha256_hex(const void* data, size_t len, char* output) {
     const uint8_t* bytes = (const uint8_t*)data;
     for (size_t i = 0; i < 32; i++) {
@@ -45,34 +35,17 @@ void diram_compute_receipt(diram_allocation_t* alloc, const char* tag) {
         size_t size;
         uint64_t timestamp;
         char tag[64];
-    } receipt_input;
+    } input;
     
-    receipt_input.addr = alloc->base_addr;
-    receipt_input.size = alloc->size;
-    receipt_input.timestamp = alloc->timestamp;
-    strncpy(receipt_input.tag, tag ? tag : "untagged", 63);
-    receipt_input.tag[63] = '\0';
-    
-    sha256_hex(&receipt_input, sizeof(receipt_input), alloc->sha256_receipt);
-}
-
-static int check_heap_constraint(uint64_t current_epoch) {
-    if (heap_ctx.command_epoch != current_epoch) {
-        heap_ctx.event_count = 0;
-        heap_ctx.command_epoch = current_epoch;
-    }
-    
-    if (heap_ctx.event_count >= DIRAM_MAX_HEAP_EVENTS) {
-        return -1;
-    }
-    
-    heap_ctx.event_count++;
-    return 0;
+    input.addr = alloc->base_addr;
+    input.size = alloc->size;
+    input.timestamp = alloc->timestamp;
+    strncpy(input.tag, tag ? tag : "untagged", 63);
+    sha256_hex(&input, sizeof(input), alloc->sha256_receipt);
 }
 
 int diram_init_trace_log(void) {
     pthread_mutex_lock(&trace_mutex);
-    
     if (trace_log != NULL) {
         pthread_mutex_unlock(&trace_mutex);
         return 0;
@@ -85,8 +58,7 @@ int diram_init_trace_log(void) {
     }
     
     setvbuf(trace_log, NULL, _IOLBF, 0);
-    fprintf(trace_log, "# DIRAM Allocation Trace Log\n");
-    fprintf(trace_log, "# Format: TIMESTAMP|PID|OPERATION|ADDRESS|SIZE|SHA256|TAG\n");
+    fprintf(trace_log, "# DIRAM Trace Log\n");
     fflush(trace_log);
     
     pthread_mutex_unlock(&trace_mutex);
@@ -103,27 +75,28 @@ void diram_close_trace_log(void) {
 }
 
 diram_allocation_t* diram_alloc_traced(size_t size, const char* tag) {
-    struct timespec ts;
+    struct timespec ts = {0};
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    uint64_t current_epoch = ts.tv_sec;
     
-    if (check_heap_constraint(current_epoch) < 0) {
+    if (heap_ctx.command_epoch != (uint64_t)ts.tv_sec) {
+        heap_ctx.event_count = 0;
+        heap_ctx.command_epoch = ts.tv_sec;
+    }
+    
+    if (heap_ctx.event_count >= DIRAM_MAX_HEAP_EVENTS) {
         return NULL;
     }
     
-    diram_allocation_t* alloc = malloc(sizeof(diram_allocation_t));
-    if (alloc == NULL) {
-        heap_ctx.event_count--;
-        return NULL;
-    }
+    diram_allocation_t* alloc = calloc(1, sizeof(diram_allocation_t));
+    if (!alloc) return NULL;
     
     alloc->base_addr = malloc(size);
-    if (alloc->base_addr == NULL) {
+    if (!alloc->base_addr) {
         free(alloc);
-        heap_ctx.event_count--;
         return NULL;
     }
     
+    heap_ctx.event_count++;
     alloc->size = size;
     alloc->timestamp = (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
     alloc->heap_events = heap_ctx.event_count;
@@ -134,12 +107,9 @@ diram_allocation_t* diram_alloc_traced(size_t size, const char* tag) {
     pthread_mutex_lock(&trace_mutex);
     if (trace_log != NULL) {
         fprintf(trace_log, "%lu|%d|ALLOC|%p|%zu|%s|%s\n",
-                alloc->timestamp,
-                alloc->binding_pid,
-                alloc->base_addr,
-                alloc->size,
-                alloc->sha256_receipt,
-                tag ? tag : "untagged");
+                alloc->timestamp, alloc->binding_pid,
+                alloc->base_addr, alloc->size,
+                alloc->sha256_receipt, tag ? tag : "untagged");
         fflush(trace_log);
     }
     pthread_mutex_unlock(&trace_mutex);
@@ -148,31 +118,22 @@ diram_allocation_t* diram_alloc_traced(size_t size, const char* tag) {
 }
 
 void diram_free_traced(diram_allocation_t* alloc) {
-    if (alloc == NULL) {
-        return;
-    }
+    if (!alloc) return;
+    if (alloc->binding_pid != getpid()) return;
     
-    if (alloc->binding_pid != getpid()) {
-        return;
-    }
-    
-    struct timespec ts;
+    struct timespec ts = {0};
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    uint64_t timestamp = (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
     
     pthread_mutex_lock(&trace_mutex);
     if (trace_log != NULL) {
         fprintf(trace_log, "%lu|%d|FREE|%p|%zu|%s|traced\n",
-                timestamp,
-                getpid(),
-                alloc->base_addr,
-                alloc->size,
+                (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec,
+                getpid(), alloc->base_addr, alloc->size,
                 alloc->sha256_receipt);
         fflush(trace_log);
     }
     pthread_mutex_unlock(&trace_mutex);
     
     free(alloc->base_addr);
-    memset(alloc, 0, sizeof(diram_allocation_t));
     free(alloc);
 }
