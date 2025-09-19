@@ -1,0 +1,338 @@
+# ============================================================================
+# DIRAMC Unified Build System
+# OBINexus LIBPOLYCALL2DIRAM Integration
+# Fixes: Fragmented build, improper linking, missing dependencies
+# ============================================================================
+
+# Project Configuration
+PROJECT_NAME := diramc
+VERSION := 2.0.0
+BUILD_DATE := $(shell date +%Y%m%d)
+
+# Detect OS
+UNAME_S := $(shell uname -s 2>/dev/null || echo Windows)
+ifeq ($(UNAME_S),Linux)
+    OS_TYPE := linux
+    LIB_EXT := so
+    EXE_EXT :=
+    PTHREAD_LIBS := -pthread
+else ifeq ($(UNAME_S),Darwin)
+    OS_TYPE := macos
+    LIB_EXT := dylib
+    EXE_EXT :=
+    PTHREAD_LIBS := -pthread
+else
+    OS_TYPE := windows
+    LIB_EXT := dll
+    EXE_EXT := .exe
+    PTHREAD_LIBS :=
+endif
+
+# Compiler Settings
+CC := gcc
+AR := ar
+CFLAGS := -Wall -Wextra -g -O2 -fPIC -D_GNU_SOURCE
+CFLAGS += -DDIRAM_VERSION=\"$(VERSION)\" -DDIRAM_BUILD_DATE=\"$(BUILD_DATE)\"
+LDFLAGS := $(PTHREAD_LIBS) -lm
+
+# Windows-specific settings
+ifeq ($(OS_TYPE),windows)
+    CFLAGS += -D_WIN32
+    LDFLAGS += -lws2_32 -lkernel32
+endif
+
+# Directory Structure
+SRC_DIR := src
+INC_DIR := include
+BUILD_DIR := build
+LIB_DIR := lib
+BIN_DIR := bin
+TEST_DIR := tests
+LOGS_DIR := logs
+
+# Source Organization
+CORE_SRC_DIR := $(SRC_DIR)/core
+CLI_SRC_DIR := $(SRC_DIR)/cli
+FEATURE_ALLOC_DIR := $(CORE_SRC_DIR)/feature-alloc
+HOTWIRE_DIR := $(CORE_SRC_DIR)/hotwire
+CONFIG_DIR := $(CORE_SRC_DIR)/config
+PARSER_DIR := $(CORE_SRC_DIR)/parser
+ASSEMBLY_DIR := $(CORE_SRC_DIR)/assembly
+
+# Object file directories
+OBJ_DIR := $(BUILD_DIR)/obj
+CORE_OBJ_DIR := $(OBJ_DIR)/core
+CLI_OBJ_DIR := $(OBJ_DIR)/cli
+
+# Include paths
+INCLUDES := -I$(INC_DIR) -I.
+
+# ============================================================================
+# Source Files
+# ============================================================================
+
+# Core allocation sources
+ALLOC_SRCS := \
+    $(FEATURE_ALLOC_DIR)/alloc.c \
+    $(FEATURE_ALLOC_DIR)/feature_alloc.c \
+    $(FEATURE_ALLOC_DIR)/async_promise.c \
+    $(FEATURE_ALLOC_DIR)/cache_lookahead.c
+
+# Hotwire transformation sources
+HOTWIRE_SRCS := \
+    $(HOTWIRE_DIR)/hotwire.c \
+    $(HOTWIRE_DIR)/asm_visitor.c \
+    $(HOTWIRE_DIR)/wasm_visitor.c
+
+# Parser sources
+PARSER_SRCS := \
+    $(PARSER_DIR)/parser.c \
+    $(PARSER_DIR)/ast.c \
+    $(PARSER_DIR)/tokenizer.c
+
+# Assembly pipeline sources
+ASSEMBLY_SRCS := \
+    $(ASSEMBLY_DIR)/nasm_pipeline.c \
+    $(ASSEMBLY_DIR)/smod_loader.c
+
+# Configuration sources
+CONFIG_SRCS := \
+    $(CONFIG_DIR)/config.c
+
+# CLI sources
+CLI_SRCS := \
+    $(CLI_SRC_DIR)/main.c
+
+# Bootstrap test source
+BOOTSTRAP_SRC := diram_bootstrap.c
+
+# All core sources
+CORE_SRCS := $(ALLOC_SRCS) $(HOTWIRE_SRCS) $(PARSER_SRCS) $(ASSEMBLY_SRCS) $(CONFIG_SRCS)
+
+# ============================================================================
+# Object Files
+# ============================================================================
+
+ALLOC_OBJS := $(patsubst $(FEATURE_ALLOC_DIR)/%.c,$(CORE_OBJ_DIR)/feature-alloc/%.o,$(ALLOC_SRCS))
+HOTWIRE_OBJS := $(patsubst $(HOTWIRE_DIR)/%.c,$(CORE_OBJ_DIR)/hotwire/%.o,$(HOTWIRE_SRCS))
+PARSER_OBJS := $(patsubst $(PARSER_DIR)/%.c,$(CORE_OBJ_DIR)/parser/%.o,$(PARSER_SRCS))
+ASSEMBLY_OBJS := $(patsubst $(ASSEMBLY_DIR)/%.c,$(CORE_OBJ_DIR)/assembly/%.o,$(ASSEMBLY_SRCS))
+CONFIG_OBJS := $(patsubst $(CONFIG_DIR)/%.c,$(CORE_OBJ_DIR)/config/%.o,$(CONFIG_SRCS))
+CLI_OBJS := $(patsubst $(CLI_SRC_DIR)/%.c,$(CLI_OBJ_DIR)/%.o,$(CLI_SRCS))
+
+CORE_OBJS := $(ALLOC_OBJS) $(HOTWIRE_OBJS) $(PARSER_OBJS) $(ASSEMBLY_OBJS) $(CONFIG_OBJS)
+ALL_OBJS := $(CORE_OBJS) $(CLI_OBJS)
+
+# ============================================================================
+# Targets
+# ============================================================================
+
+# Default target
+.PHONY: all
+all: dirs bootstrap lib shared static executable
+
+# Help target
+.PHONY: help
+help:
+	@echo "DIRAMC Unified Build System"
+	@echo "============================"
+	@echo "Targets:"
+	@echo "  all          - Build everything (default)"
+	@echo "  bootstrap    - Build and test bootstrap system"
+	@echo "  lib          - Build all libraries"
+	@echo "  shared       - Build shared library ($(LIB_EXT))"
+	@echo "  static       - Build static library"
+	@echo "  executable   - Build diramc executable"
+	@echo "  test         - Run all tests"
+	@echo "  clean        - Remove build artifacts"
+	@echo "  distclean    - Remove everything including logs"
+	@echo "  info         - Display build configuration"
+	@echo ""
+	@echo "OS Type: $(OS_TYPE)"
+	@echo "Compiler: $(CC)"
+
+# Create directories
+.PHONY: dirs
+dirs:
+	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(LIB_DIR)
+	@mkdir -p $(BIN_DIR)
+	@mkdir -p $(LOGS_DIR)
+	@mkdir -p $(CORE_OBJ_DIR)/feature-alloc
+	@mkdir -p $(CORE_OBJ_DIR)/hotwire
+	@mkdir -p $(CORE_OBJ_DIR)/parser
+	@mkdir -p $(CORE_OBJ_DIR)/assembly
+	@mkdir -p $(CORE_OBJ_DIR)/config
+	@mkdir -p $(CLI_OBJ_DIR)
+
+# Bootstrap system test
+.PHONY: bootstrap
+bootstrap: dirs
+	@echo "Building DIRAM Bootstrap System..."
+	@echo "Creating bootstrap test from artifact..."
+	@cp diram_bootstrap.h $(INC_DIR)/diram/core/bootstrap.h 2>/dev/null || true
+	$(CC) $(CFLAGS) -DDIRAM_TEST_BUILD $(INCLUDES) -c diram_bootstrap.c -o $(BUILD_DIR)/bootstrap.o 2>/dev/null || \
+		$(CC) $(CFLAGS) -DDIRAM_TEST_BUILD $(INCLUDES) -x c -c - -o $(BUILD_DIR)/bootstrap.o < diram_bootstrap.h
+	$(CC) $(BUILD_DIR)/bootstrap.o $(LDFLAGS) -o $(BIN_DIR)/diram_bootstrap$(EXE_EXT)
+	@echo "Running bootstrap self-test..."
+	@$(BIN_DIR)/diram_bootstrap$(EXE_EXT)
+	@echo "Bootstrap test complete!"
+
+# Build all libraries
+.PHONY: lib
+lib: shared static
+
+# Shared library
+.PHONY: shared
+shared: dirs $(CORE_OBJS)
+	@echo "Building shared library lib$(PROJECT_NAME).$(LIB_EXT)..."
+	$(CC) -shared $(CORE_OBJS) $(LDFLAGS) -o $(LIB_DIR)/lib$(PROJECT_NAME).$(LIB_EXT)
+	@echo "Shared library built: $(LIB_DIR)/lib$(PROJECT_NAME).$(LIB_EXT)"
+
+# Static library
+.PHONY: static
+static: dirs $(CORE_OBJS)
+	@echo "Building static library lib$(PROJECT_NAME).a..."
+	$(AR) rcs $(LIB_DIR)/lib$(PROJECT_NAME).a $(CORE_OBJS)
+	@echo "Static library built: $(LIB_DIR)/lib$(PROJECT_NAME).a"
+
+# Main executable
+.PHONY: executable
+executable: dirs $(ALL_OBJS) shared
+	@echo "Building $(PROJECT_NAME) executable..."
+	$(CC) $(CLI_OBJS) -L$(LIB_DIR) -l$(PROJECT_NAME) $(LDFLAGS) -o $(BIN_DIR)/$(PROJECT_NAME)$(EXE_EXT)
+	@echo "Executable built: $(BIN_DIR)/$(PROJECT_NAME)$(EXE_EXT)"
+
+# ============================================================================
+# Pattern Rules
+# ============================================================================
+
+# Feature allocation objects
+$(CORE_OBJ_DIR)/feature-alloc/%.o: $(FEATURE_ALLOC_DIR)/%.c
+	@echo "Compiling $<..."
+	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+# Hotwire objects
+$(CORE_OBJ_DIR)/hotwire/%.o: $(HOTWIRE_DIR)/%.c
+	@echo "Compiling $<..."
+	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+# Parser objects
+$(CORE_OBJ_DIR)/parser/%.o: $(PARSER_DIR)/%.c
+	@echo "Compiling $<..."
+	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+# Assembly objects
+$(CORE_OBJ_DIR)/assembly/%.o: $(ASSEMBLY_DIR)/%.c
+	@echo "Compiling $<..."
+	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+# Config objects
+$(CORE_OBJ_DIR)/config/%.o: $(CONFIG_DIR)/%.c
+	@echo "Compiling $<..."
+	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+# CLI objects
+$(CLI_OBJ_DIR)/%.o: $(CLI_SRC_DIR)/%.c
+	@echo "Compiling $<..."
+	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+# ============================================================================
+# Testing
+# ============================================================================
+
+.PHONY: test
+test: bootstrap
+	@echo "Running DIRAMC tests..."
+	@if [ -f $(TEST_DIR)/core/alloc/test_alloc.c ]; then \
+		$(CC) $(CFLAGS) $(INCLUDES) $(TEST_DIR)/core/alloc/test_alloc.c \
+			-L$(LIB_DIR) -l$(PROJECT_NAME) $(LDFLAGS) -o $(BIN_DIR)/test_alloc$(EXE_EXT); \
+		$(BIN_DIR)/test_alloc$(EXE_EXT); \
+	fi
+	@echo "All tests completed!"
+
+# ============================================================================
+# Utility Targets
+# ============================================================================
+
+# Display build information
+.PHONY: info
+info:
+	@echo "DIRAMC Build Configuration"
+	@echo "=========================="
+	@echo "Project:     $(PROJECT_NAME) v$(VERSION)"
+	@echo "Build Date:  $(BUILD_DATE)"
+	@echo "OS Type:     $(OS_TYPE)"
+	@echo "Compiler:    $(CC)"
+	@echo "CFLAGS:      $(CFLAGS)"
+	@echo "LDFLAGS:     $(LDFLAGS)"
+	@echo "Libraries:   $(LIB_DIR)/lib$(PROJECT_NAME).$(LIB_EXT)"
+	@echo "             $(LIB_DIR)/lib$(PROJECT_NAME).a"
+	@echo "Executable:  $(BIN_DIR)/$(PROJECT_NAME)$(EXE_EXT)"
+
+# Clean build artifacts
+.PHONY: clean
+clean:
+	@echo "Cleaning build artifacts..."
+	@rm -rf $(BUILD_DIR)
+	@rm -rf $(LIB_DIR)
+	@rm -rf $(BIN_DIR)
+	@echo "Clean complete!"
+
+# Deep clean including logs
+.PHONY: distclean
+distclean: clean
+	@echo "Removing logs..."
+	@rm -rf $(LOGS_DIR)
+	@echo "Distclean complete!"
+
+# Install target
+.PHONY: install
+install: all
+	@echo "Installing DIRAMC..."
+	@install -d $(DESTDIR)/usr/local/bin
+	@install -d $(DESTDIR)/usr/local/lib
+	@install -d $(DESTDIR)/usr/local/include/diram
+	@install -m 755 $(BIN_DIR)/$(PROJECT_NAME)$(EXE_EXT) $(DESTDIR)/usr/local/bin/
+	@install -m 644 $(LIB_DIR)/lib$(PROJECT_NAME).$(LIB_EXT) $(DESTDIR)/usr/local/lib/
+	@install -m 644 $(LIB_DIR)/lib$(PROJECT_NAME).a $(DESTDIR)/usr/local/lib/
+	@cp -r $(INC_DIR)/diram/* $(DESTDIR)/usr/local/include/diram/
+	@echo "Installation complete!"
+
+# Uninstall target
+.PHONY: uninstall
+uninstall:
+	@echo "Uninstalling DIRAMC..."
+	@rm -f $(DESTDIR)/usr/local/bin/$(PROJECT_NAME)$(EXE_EXT)
+	@rm -f $(DESTDIR)/usr/local/lib/lib$(PROJECT_NAME).$(LIB_EXT)
+	@rm -f $(DESTDIR)/usr/local/lib/lib$(PROJECT_NAME).a
+	@rm -rf $(DESTDIR)/usr/local/include/diram
+	@echo "Uninstall complete!"
+
+# ============================================================================
+# Special Targets for OBINexus Integration
+# ============================================================================
+
+# Integration with LibPolyCall
+.PHONY: polycall-integrate
+polycall-integrate: lib
+	@echo "Integrating with LibPolyCall..."
+	@cp $(LIB_DIR)/lib$(PROJECT_NAME).$(LIB_EXT) ../libpolycall/lib/ 2>/dev/null || true
+	@cp $(INC_DIR)/diram/core/*.h ../libpolycall/include/polycall/ 2>/dev/null || true
+	@echo "Integration complete!"
+
+# Recovery mode for broken builds
+.PHONY: recover
+recover:
+	@echo "Recovering from broken build state..."
+	@rm -rf build.backup
+	@mv build build.backup 2>/dev/null || true
+	@rm -rf build-universal
+	@$(MAKE) distclean
+	@$(MAKE) all
+	@echo "Recovery complete!"
+
+.PHONY: .DEFAULT
+.DEFAULT:
+	@echo "Unknown target '$@'"
+	@echo "Run 'make help' for available targets"
