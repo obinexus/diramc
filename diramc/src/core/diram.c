@@ -4,6 +4,8 @@
 // ============================================================================
 
 #include "diram/core/diram.h"
+#include "diram/core/diram_phenomenological.h"  // Add this first
+#include "diram/core/diram.h"
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
