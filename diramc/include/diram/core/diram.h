@@ -20,7 +20,13 @@
 #define DIRAM_ERR_UNKNOWN              0x1010
 #define DIRAM_ERR_GOVERNANCE_FAIL      0x1011
 
+
 #define DIRAM_SHA256_HEX_LEN           65
+
+
+#define DIRAM_TRACE_LOG_PATH "/var/log/diram/trace.log"
+#define DIRAM_MAX_HEAP_EVENTS 1000
+
 
 // Status structure
 typedef struct {
@@ -62,6 +68,21 @@ diram_enhanced_allocation_t* diram_alloc_enhanced(
     diram_memory_space_t* space
 );
 
+// Missing heap context structure
+typedef struct {
+    uint64_t command_epoch;
+    uint32_t event_count;
+} diram_heap_context_t;
+
+// Missing or incomplete allocation structure
+typedef struct {
+    void* base_addr;
+    size_t size;
+    uint64_t timestamp;
+    uint32_t heap_events;
+    pid_t binding_pid;
+    char sha256_receipt[65];
+} diram_allocation_t;
 // Space management
 diram_memory_space_t* diram_space_create(const char* name, size_t limit);
 void diram_space_destroy(diram_memory_space_t* space);
