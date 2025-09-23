@@ -137,3 +137,60 @@ void diram_free_traced(diram_allocation_t* alloc) {
     free(alloc->base_addr);
     free(alloc);
 }
+
+// Add to alloc.c after the existing functions
+diram_enhanced_allocation_t* diram_alloc_enhanced(
+    size_t size,
+    const char* tag,
+    diram_memory_space_t* space
+) {
+    diram_enhanced_allocation_t* alloc = calloc(1, sizeof(diram_enhanced_allocation_t));
+    if (!alloc) return NULL;
+    
+    // Check space limits if provided
+    if (space && diram_space_check_limit(space, size) != 0) {
+        free(alloc);
+        return NULL;
+    }
+    
+    alloc->base.ptr = malloc(size);
+    if (!alloc->base.ptr) {
+        free(alloc);
+        return NULL;
+    }
+    
+    alloc->base.size = size;
+    alloc->timestamp = time(NULL);
+    alloc->pid = getpid();
+    strncpy(alloc->tag, tag ? tag : "untagged", 127);
+    alloc->flags = 0;
+    
+    // Generate SHA256 receipt
+    struct {
+        void* addr;
+        size_t size;
+        time_t timestamp;
+        char tag[128];
+    } input;
+    
+    input.addr = alloc->base.ptr;
+    input.size = size;
+    input.timestamp = alloc->timestamp;
+    strncpy(input.tag, alloc->tag, 127);
+    
+    // Simple hash generation (placeholder)
+    for (int i = 0; i < 32; i++) {
+        sprintf(alloc->base.sha256_receipt + (i * 2), "%02x", 
+                ((uint8_t*)&input)[i % sizeof(input)]);
+    }
+    alloc->base.sha256_receipt[64] = '\0';
+    
+    // Update space usage
+    if (space) {
+        pthread_mutex_lock(&space->lock);
+        space->used_bytes += size;
+        pthread_mutex_unlock(&space->lock);
+    }
+    
+    return alloc;
+}

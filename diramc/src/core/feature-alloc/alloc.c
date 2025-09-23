@@ -126,7 +126,7 @@ void diram_free_traced(diram_allocation_t* alloc) {
     
     pthread_mutex_lock(&trace_mutex);
     if (trace_log != NULL) {
-        fprintf(trace_log, "%lu|%d|FREE|%p|%zu|%s|traced\n",
+        fprintf(trace_log, "%llu|%d|FREE|%p|%zu|%s|traced\n",
                 (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec,
                 getpid(), alloc->base_addr, alloc->size,
                 alloc->sha256_receipt);

@@ -39,6 +39,7 @@ typedef struct {
     diram_async_promise_t* promise;
     char* tag;
     diram_memory_space_t* space;
+    (void)space;
     bool use_lookahead;
 } diram_worker_context_t;
 
@@ -58,6 +59,7 @@ diram_enhanced_allocation_t* diram_alloc_enhanced(
     size_t size,
     const char* tag,
     diram_memory_space_t* space
+    (void)space;
 ) {
     diram_enhanced_allocation_t* alloc = calloc(1, sizeof(diram_enhanced_allocation_t));
     if (!alloc) return NULL;
@@ -129,6 +131,7 @@ diram_async_promise_t* diram_alloc_with_lookahead(
     size_t size,
     const char* tag,
     diram_memory_space_t* space,
+    (void)space;
     uint32_t access_pattern_hint
 ) {
     init_lookahead_cache();
