@@ -1,0 +1,34 @@
+# diram_isa.yaml - Instruction Set Architecture
+version: 1.0.0
+instructions:
+  # Memory Operations
+  ALLOC:
+    opcode: 0x01
+    operands: [size, tag]
+    returns: pointer
+    trace: true
+    
+  FREE:
+    opcode: 0x02
+    operands: [pointer]
+    returns: void
+    verify_receipt: true
+    
+  TRACE:
+    opcode: 0x03
+    operands: [library_path, symbol]
+    returns: trace_handle
+    detachable: true
+
+  # Library Operations  
+  LOAD_LIB:
+    opcode: 0x10
+    operands: [path, flags]
+    returns: lib_handle
+    supported: [.so, .a, .dll, .dylib]
+    
+  HOOK:
+    opcode: 0x11
+    operands: [lib_handle, function_name]
+    returns: hook_handle
+    trace_enabled: true

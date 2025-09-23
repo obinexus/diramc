@@ -1,0 +1,32 @@
+@trace_lib "/opt/drone/libnavigation.so"
+@trace_lib "/opt/drone/libsensors.so"
+@detach_mode true
+
+statement gps_coherence {
+    gps := hook("libsensors.so", "read_gps")
+    nav := hook("libnavigation.so", "calculate_route")
+    
+    # If GPS returns NULL, navigation will fail
+    if (gps == null) {
+        log("FAULT: GPS failure detected")
+        return false
+    }
+    
+    return coherent(gps, nav)
+}
+
+expression monitor_flight {
+    while (drone.flying) {
+        if (!gps_coherence) {
+            emergency_land()
+            break
+        }
+        sleep(100ms)
+    }
+}
+
+intent safe_delivery {
+    requires: gps_coherence == true
+    ensures: package_delivered || safe_landing
+    invariant: altitude >= 0
+}

@@ -1,0 +1,29 @@
+# example.dr - DIRAM Script
+@trace_lib "/usr/lib/libcustom.so"
+@detach_mode true
+@log_path "./logs/trace.log"
+
+# Statement evaluation (true/false)
+statement check_coherence {
+    component_a := load("sensor.so")
+    component_b := load("processor.so")
+    
+    # XOR gate coherence check
+    return xor(hash(component_a), hash(component_b)) < 0.6
+}
+
+# Expression with memory loop
+expression allocate_traced {
+    for i in range(0, 10) {
+        ptr[i] := alloc(1024, "buffer_$i")
+        trace(ptr[i])
+    }
+    return ptr
+}
+
+# Intent declaration for program contract
+intent fault_detection {
+    requires: check_coherence == true
+    ensures: no_silent_failures
+    invariant: epsilon <= 0.6
+}
