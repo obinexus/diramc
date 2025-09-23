@@ -1,0 +1,20 @@
+--- include/diram/core/feature-alloc/async_promise.h
++++ include/diram/core/feature-alloc/async_promise.h
+@@ -20,6 +20,17 @@
+ #define DIRAM_SHA256_HEX_LEN 65
+ #endif
+ 
++// Extension error codes for async promises
++#ifndef DIRAM_ERR_TIMEOUT
++#define DIRAM_ERR_TIMEOUT        0x100B
++#define DIRAM_ERR_CANCELLED      0x100C
++#define DIRAM_ERR_PENDING        0x100D
++#define DIRAM_ERR_INVALID_ARG    0x100E
++#define DIRAM_ERR_FATAL          0x100F
++#define DIRAM_ERR_UNKNOWN        0x1010
++#define DIRAM_SUCCESS            DIRAM_ERR_NONE
++#endif
++
+ // Forward declarations
+ typedef struct diram_memory_space diram_memory_space_t;
+ typedef struct diram_allocation diram_allocation_t;

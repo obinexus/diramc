@@ -1,0 +1,35 @@
+--- src/core/feature-alloc/async_promise.c
++++ src/core/feature-alloc/async_promise.c
+@@ -85,15 +96,18 @@ diram_enhanced_allocation_t* diram_alloc_enhanced(
+     }
+     
+     alloc->base.size = size;
+-    alloc->timestamp = time(NULL);
+-    alloc->pid = getpid();
++    // These fields are in the base allocation, not the enhanced
++    alloc->base.timestamp = time(NULL);
++    // If pid field doesn't exist, we can store it differently
++    alloc->phenotype.priority = getpid() & 0xFF; // Store PID in priority field temporarily
+     
+     if (tag) {
+-        strncpy(alloc->tag, tag, sizeof(alloc->tag) - 1);
+-        alloc->tag[sizeof(alloc->tag) - 1] = '\0';
++        // Tag should be allocated separately since it's not in the struct
++        alloc->base.tag = strdup(tag);
+     }
+     
+     // Generate SHA256 receipt (simplified)
++    #define DIRAM_SHA256_HEX_LEN 65
+     snprintf(alloc->base.sha256_receipt, DIRAM_SHA256_HEX_LEN, 
+-            "SHA256_%lx_%zu_%ld", (uintptr_t)alloc->base.ptr, size, alloc->timestamp);
++            "SHA256_%lx_%zu_%ld", (uintptr_t)alloc->base.ptr, size, alloc->base.timestamp);
+     
+@@ -504,7 +518,7 @@ diram_status_t diram_promise_get_status(diram_async_promise_t* promise) {
+             status.ok = 0;
+             break;
+         default:
+-            status.err = DIRAM_ERR_PENDING;
++            status.err = DIRAM_ERR_PENDING;  // Fixed typo
+             status.ok = 0;
+             break;
+     }
