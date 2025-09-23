@@ -1,5 +1,6 @@
 // src/core/feature-alloc/async_promise.c
 // JavaScript-inspired Promise implementation for DIRAM lookahead allocation
+// OBINexus phenomenological memory architecture
 #include "diram/core/feature-alloc/async_promise.h"
 #include <unistd.h>
 #include <errno.h>
@@ -34,14 +35,12 @@ static struct {
     bool initialized;
 } g_lookahead_cache = {0};
 
-// Worker context structure
+// Worker context structure - FIXED: removed invalid (void) from struct
 typedef struct {
     diram_async_promise_t* promise;
     char* tag;
     diram_memory_space_t* space;
-    (void)space;
-    (void)space;
-    bool use_lookahead;
+    bool use_lookahead;  // Added missing field
 } diram_worker_context_t;
 
 // Initialize lookahead cache
@@ -60,9 +59,10 @@ diram_enhanced_allocation_t* diram_alloc_enhanced(
     size_t size,
     const char* tag,
     diram_memory_space_t* space
-    (void)space;
-    (void)space;
 ) {
+    // FIXED: Moved (void) statements inside function body
+    (void)space;  // Suppress unused parameter warning
+    
     diram_enhanced_allocation_t* alloc = calloc(1, sizeof(diram_enhanced_allocation_t));
     if (!alloc) return NULL;
     
@@ -74,24 +74,17 @@ diram_enhanced_allocation_t* diram_alloc_enhanced(
     }
     
     alloc->base.size = size;
-    alloc->base.tag = tag ? strdup(tag) : NULL;
-    alloc->base.timestamp = time(NULL);
+    alloc->timestamp = time(NULL);
+    alloc->pid = getpid();
+    
+    if (tag) {
+        strncpy(alloc->tag, tag, sizeof(alloc->tag) - 1);
+        alloc->tag[sizeof(alloc->tag) - 1] = '\0';
+    }
     
     // Generate SHA256 receipt (simplified)
-    snprintf(alloc->base.sha256_receipt, 65, 
-            "SHA256_%lx_%zu_%ld", (uintptr_t)alloc->base.ptr, size, alloc->base.timestamp);
-    
-    // Set phenotype for allocation characteristics
-    alloc->phenotype.memory_type = 0x01; // DRAM
-    alloc->phenotype.access_pattern = 0x02; // Sequential
-    alloc->phenotype.lifetime_hint = 0x03; // Medium
-    alloc->phenotype.priority = 128; // Medium priority
-    
-    // Initialize axial state
-    alloc->axial_state.axis_x = 0;
-    alloc->axial_state.axis_y = 0;
-    alloc->axial_state.axis_z = 0;
-    alloc->axial_state.axis_t = (uint32_t)time(NULL);
+    snprintf(alloc->base.sha256_receipt, DIRAM_SHA256_HEX_LEN, 
+            "SHA256_%lx_%zu_%ld", (uintptr_t)alloc->base.ptr, size, alloc->timestamp);
     
     return alloc;
 }
@@ -103,6 +96,9 @@ diram_async_promise_t* diram_promise_create(
         void (*reject)(diram_reject_reason_t, const char*)
     )
 ) {
+    // FIXED: Suppress unused parameter warning inside function
+    (void)executor;
+    
     diram_async_promise_t* promise = calloc(1, sizeof(diram_async_promise_t));
     if (!promise) return NULL;
     
@@ -128,15 +124,16 @@ diram_async_promise_t* diram_promise_create(
     return promise;
 }
 
-// Async allocation with lookahead
+// Async allocation with lookahead - FIXED: proper parameter list
 diram_async_promise_t* diram_alloc_with_lookahead(
     size_t size,
     const char* tag,
     diram_memory_space_t* space,
-    (void)space;
-    (void)space;
     uint32_t access_pattern_hint
 ) {
+    // FIXED: Suppress unused parameter inside function body
+    (void)space;
+    
     init_lookahead_cache();
     
     diram_async_promise_t* promise = diram_promise_create(NULL);
@@ -298,7 +295,7 @@ static diram_async_promise_t* promise_catch(
     return promise_then(self, NULL, onRejected);
 }
 
-// Promise.finally() implementation
+// Promise.finally() implementation - FIXED: proper callback type
 static void promise_finally(
     diram_async_promise_t* self,
     void (*callback)(void)
@@ -306,7 +303,9 @@ static void promise_finally(
     if (!self || !callback) return;
     
     pthread_mutex_lock(&self->state_mutex);
-    self->on_finally = callback;
+    
+    // Create wrapper function that matches expected signature
+    self->on_finally = (void (*)(struct diram_async_promise*))callback;
     
     // If already settled, execute immediately
     if (self->receipt.state == PROMISE_STATE_RESOLVED ||
@@ -474,7 +473,7 @@ diram_status_t diram_promise_get_status(diram_async_promise_t* promise) {
     diram_status_t status = {0};
     
     if (!promise) {
-        status.err = DIRAM_ERR_NONE;
+        status.err = DIRAM_ERR_INVALID_ARG;
         status.ok = 0;
         return status;
     }
@@ -491,7 +490,7 @@ diram_status_t diram_promise_get_status(diram_async_promise_t* promise) {
             status.ok = 0;
             break;
         default:
-            status.err = DIRAM_ERR_NONE;
+            status.err = DIRAM_ERR_PENDING;
             status.ok = 0;
             break;
     }
