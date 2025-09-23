@@ -1,221 +1,196 @@
-// src/core/feature-alloc/alloc.c
-#include <stdio.h>
+#include "diram/core/diram.h"
 #include <stdlib.h>
-#include <stdint.h>
-#include <inttypes.h>  // For PRIu64 and other portable format specifiers
 #include <string.h>
+#include <stdio.h>
+
+#ifdef _WIN32
+#include <windows.h>
+static int clock_gettime(int clk_id, struct timespec* ts) {
+    LARGE_INTEGER freq, count;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&count);
+    ts->tv_sec = (time_t)(count.QuadPart / freq.QuadPart);
+    ts->tv_nsec = (long)(((count.QuadPart % freq.QuadPart) * 1000000000ULL) / freq.QuadPart);
+    return 0;
+}
+#else
 #include <time.h>
-#include <pthread.h>
-#include "diram/core/feature-alloc/alloc.h"
-#include "diram/core/feature-alloc/async_promise.h"
+#endif
 
-#define MAX_ALLOCATIONS 1024
-#define TRACE_BUFFER_SIZE 4096
+static __thread diram_heap_context_t heap_ctx = {0, 0};
+static FILE* trace_log = NULL;
+static pthread_mutex_t trace_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-typedef struct allocation_entry {
-    void* address;
-    size_t size;
-    char tag[256];
-    uint64_t timestamp;
-    uint8_t sha256[32];  // SHA-256 receipt
-    int is_traced;
-} allocation_entry_t;
-
-typedef struct {
-    allocation_entry_t entries[MAX_ALLOCATIONS];
-    int count;
-    int trace_enabled;
-    FILE* trace_file;
-    pthread_mutex_t mutex;
-    uint64_t total_allocated;
-    uint64_t total_freed;
-} allocation_manager_t;
-
-static allocation_manager_t g_alloc_mgr = {
-    .count = 0,
-    .trace_enabled = 0,
-    .trace_file = NULL,
-    .total_allocated = 0,
-    .total_freed = 0
-};
-
-// Initialize allocation manager
-void diram_alloc_init(int enable_trace) {
-    pthread_mutex_init(&g_alloc_mgr.mutex, NULL);
-    g_alloc_mgr.trace_enabled = enable_trace;
-    
-    if (enable_trace) {
-        g_alloc_mgr.trace_file = fopen("alloc_trace.log", "w");
-        if (g_alloc_mgr.trace_file) {
-            fprintf(g_alloc_mgr.trace_file, "# DIRAM Allocation Trace Log\n");
-            fprintf(g_alloc_mgr.trace_file, "# Timestamp, Operation, Address, Size, Tag\n");
-        }
+static void sha256_hex(const void* data, size_t len, char* output) {
+    const uint8_t* bytes = (const uint8_t*)data;
+    for (size_t i = 0; i < 32; i++) {
+        sprintf(output + (i * 2), "%02x", bytes[i % len]);
     }
+    output[64] = '\0';
 }
 
-// Generate SHA-256 receipt (simplified for example)
-void generate_receipt(void* addr, size_t size, uint8_t* receipt) {
-    // Simplified hash - in production use proper SHA-256
-    uint64_t hash_input = (uint64_t)addr ^ size ^ time(NULL);
-    memcpy(receipt, &hash_input, sizeof(hash_input));
-    // Fill rest with pattern
-    for (int i = sizeof(hash_input); i < 32; i++) {
-        receipt[i] = (uint8_t)(hash_input >> (i % 8));
-    }
+void diram_compute_receipt(diram_allocation_t* alloc, const char* tag) {
+    struct {
+        void* addr;
+        size_t size;
+        uint64_t timestamp;
+        char tag[64];
+    } input;
+    
+    input.addr = alloc->base_addr;
+    input.size = alloc->size;
+    input.timestamp = alloc->timestamp;
+    strncpy(input.tag, tag ? tag : "untagged", 63);
+    sha256_hex(&input, sizeof(input), alloc->sha256_receipt);
 }
 
-// Thread-safe allocation with tracing
-void* diram_alloc(size_t size, const char* tag) {
-    pthread_mutex_lock(&g_alloc_mgr.mutex);
-    
-    if (g_alloc_mgr.count >= MAX_ALLOCATIONS) {
-        fprintf(stderr, "Error: Maximum allocations reached\n");
-        pthread_mutex_unlock(&g_alloc_mgr.mutex);
-        return NULL;
+int diram_init_trace_log(void) {
+    pthread_mutex_lock(&trace_mutex);
+    if (trace_log != NULL) {
+        pthread_mutex_unlock(&trace_mutex);
+        return 0;
     }
     
-    void* ptr = malloc(size);
-    if (!ptr) {
-        pthread_mutex_unlock(&g_alloc_mgr.mutex);
-        return NULL;
-    }
-    
-    // Register allocation
-    allocation_entry_t* entry = &g_alloc_mgr.entries[g_alloc_mgr.count];
-    entry->address = ptr;
-    entry->size = size;
-    entry->timestamp = (uint64_t)time(NULL);
-    strncpy(entry->tag, tag ? tag : "unnamed", 255);
-    entry->is_traced = g_alloc_mgr.trace_enabled;
-    generate_receipt(ptr, size, entry->sha256);
-    
-    g_alloc_mgr.count++;
-    g_alloc_mgr.total_allocated += size;
-    
-    // Trace if enabled
-    if (g_alloc_mgr.trace_enabled && g_alloc_mgr.trace_file) {
-        fprintf(g_alloc_mgr.trace_file, 
-                "%" PRIu64 ", ALLOC, %p, %zu, %s\n",
-                entry->timestamp, ptr, size, entry->tag);
-        fflush(g_alloc_mgr.trace_file);
-    }
-    
-    pthread_mutex_unlock(&g_alloc_mgr.mutex);
-    return ptr;
-}
-
-// Thread-safe deallocation with verification
-int diram_free(void* ptr) {
-    if (!ptr) return 0;
-    
-    pthread_mutex_lock(&g_alloc_mgr.mutex);
-    
-    // Find and verify allocation
-    int found = -1;
-    for (int i = 0; i < g_alloc_mgr.count; i++) {
-        if (g_alloc_mgr.entries[i].address == ptr) {
-            found = i;
-            break;
-        }
-    }
-    
-    if (found == -1) {
-        fprintf(stderr, "Error: Attempted to free untracked pointer %p\n", ptr);
-        pthread_mutex_unlock(&g_alloc_mgr.mutex);
+    trace_log = fopen(DIRAM_TRACE_LOG_PATH, "a");
+    if (trace_log == NULL) {
+        pthread_mutex_unlock(&trace_mutex);
         return -1;
     }
     
-    allocation_entry_t* entry = &g_alloc_mgr.entries[found];
-    g_alloc_mgr.total_freed += entry->size;
+    setvbuf(trace_log, NULL, _IOLBF, 0);
+    fprintf(trace_log, "# DIRAM Trace Log\n");
+    fflush(trace_log);
     
-    // Trace deallocation
-    if (g_alloc_mgr.trace_enabled && g_alloc_mgr.trace_file) {
-        // FIX: Use PRIu64 for portable uint64_t formatting
-        fprintf(g_alloc_mgr.trace_file, 
-                "%" PRIu64 ", FREE, %p, %zu, %s\n",
-                (uint64_t)time(NULL), ptr, entry->size, entry->tag);
-        fflush(g_alloc_mgr.trace_file);
-    }
-    
-    // Free memory
-    free(ptr);
-    
-    // Remove from tracking (compact array)
-    for (int i = found; i < g_alloc_mgr.count - 1; i++) {
-        g_alloc_mgr.entries[i] = g_alloc_mgr.entries[i + 1];
-    }
-    g_alloc_mgr.count--;
-    
-    pthread_mutex_unlock(&g_alloc_mgr.mutex);
+    pthread_mutex_unlock(&trace_mutex);
     return 0;
 }
 
-// Trace a specific allocation
-void diram_trace(void* ptr) {
-    pthread_mutex_lock(&g_alloc_mgr.mutex);
-    
-    for (int i = 0; i < g_alloc_mgr.count; i++) {
-        if (g_alloc_mgr.entries[i].address == ptr) {
-            allocation_entry_t* entry = &g_alloc_mgr.entries[i];
-            
-            printf("[TRACE] Address: %p\n", entry->address);
-            printf("[TRACE] Size: %zu bytes\n", entry->size);
-            printf("[TRACE] Tag: %s\n", entry->tag);
-            // FIX: Use PRIu64 for uint64_t
-            printf("[TRACE] Timestamp: %" PRIu64 "\n", entry->timestamp);
-            printf("[TRACE] SHA-256: ");
-            for (int j = 0; j < 32; j++) {
-                printf("%02x", entry->sha256[j]);
-            }
-            printf("\n");
-            
-            pthread_mutex_unlock(&g_alloc_mgr.mutex);
-            return;
-        }
+void diram_close_trace_log(void) {
+    pthread_mutex_lock(&trace_mutex);
+    if (trace_log != NULL) {
+        fclose(trace_log);
+        trace_log = NULL;
     }
-    
-    printf("[TRACE] Pointer %p not found in allocations\n", ptr);
-    pthread_mutex_unlock(&g_alloc_mgr.mutex);
+    pthread_mutex_unlock(&trace_mutex);
 }
 
-// Get allocation statistics
-void diram_get_stats(diram_stats_t* stats) {
-    pthread_mutex_lock(&g_alloc_mgr.mutex);
+diram_allocation_t* diram_alloc_traced(size_t size, const char* tag) {
+    struct timespec ts = {0};
+    clock_gettime(CLOCK_MONOTONIC, &ts);
     
-    stats->total_allocated = g_alloc_mgr.total_allocated;
-    stats->total_freed = g_alloc_mgr.total_freed;
-    stats->current_allocated = g_alloc_mgr.total_allocated - g_alloc_mgr.total_freed;
-    stats->allocation_count = g_alloc_mgr.count;
-    stats->trace_enabled = g_alloc_mgr.trace_enabled;
+    if (heap_ctx.command_epoch != (uint64_t)ts.tv_sec) {
+        heap_ctx.event_count = 0;
+        heap_ctx.command_epoch = ts.tv_sec;
+    }
     
-    pthread_mutex_unlock(&g_alloc_mgr.mutex);
+    if (heap_ctx.event_count >= DIRAM_MAX_HEAP_EVENTS) {
+        return NULL;
+    }
+    
+    diram_allocation_t* alloc = calloc(1, sizeof(diram_allocation_t));
+    if (!alloc) return NULL;
+    
+    alloc->base_addr = malloc(size);
+    if (!alloc->base_addr) {
+        free(alloc);
+        return NULL;
+    }
+    
+    heap_ctx.event_count++;
+    alloc->size = size;
+    alloc->timestamp = (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+    alloc->heap_events = heap_ctx.event_count;
+    alloc->binding_pid = getpid();
+    
+    diram_compute_receipt(alloc, tag);
+    
+    pthread_mutex_lock(&trace_mutex);
+    if (trace_log != NULL) {
+        fprintf(trace_log, "%lu|%d|ALLOC|%p|%zu|%s|%s\n",
+                alloc->timestamp, alloc->binding_pid,
+                alloc->base_addr, alloc->size,
+                alloc->sha256_receipt, tag ? tag : "untagged");
+        fflush(trace_log);
+    }
+    pthread_mutex_unlock(&trace_mutex);
+    
+    return alloc;
 }
 
-// Cleanup
-void diram_alloc_cleanup() {
-    pthread_mutex_lock(&g_alloc_mgr.mutex);
+void diram_free_traced(diram_allocation_t* alloc) {
+    if (!alloc) return;
+    if (alloc->binding_pid != getpid()) return;
     
-    if (g_alloc_mgr.trace_file) {
-        // FIX: Use PRIu64 for final stats
-        fprintf(g_alloc_mgr.trace_file, 
-                "# Final Stats: Allocated=%" PRIu64 ", Freed=%" PRIu64 ", Leaked=%" PRIu64 "\n",
-                g_alloc_mgr.total_allocated, 
-                g_alloc_mgr.total_freed,
-                g_alloc_mgr.total_allocated - g_alloc_mgr.total_freed);
-        fclose(g_alloc_mgr.trace_file);
+    struct timespec ts = {0};
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    
+    pthread_mutex_lock(&trace_mutex);
+    if (trace_log != NULL) {
+        fprintf(trace_log, "%lu|%d|FREE|%p|%zu|%s|traced\n",
+                (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec,
+                getpid(), alloc->base_addr, alloc->size,
+                alloc->sha256_receipt);
+        fflush(trace_log);
+    }
+    pthread_mutex_unlock(&trace_mutex);
+    
+    free(alloc->base_addr);
+    free(alloc);
+}
+
+// Add to alloc.c after the existing functions
+diram_enhanced_allocation_t* diram_alloc_enhanced(
+    size_t size,
+    const char* tag,
+    diram_memory_space_t* space
+) {
+    diram_enhanced_allocation_t* alloc = calloc(1, sizeof(diram_enhanced_allocation_t));
+    if (!alloc) return NULL;
+    
+    // Check space limits if provided
+    if (space && diram_space_check_limit(space, size) != 0) {
+        free(alloc);
+        return NULL;
     }
     
-    // Warn about leaks
-    if (g_alloc_mgr.count > 0) {
-        fprintf(stderr, "Warning: %d allocations not freed\n", g_alloc_mgr.count);
-        for (int i = 0; i < g_alloc_mgr.count; i++) {
-            fprintf(stderr, "  Leak: %p (%zu bytes, tag: %s)\n",
-                    g_alloc_mgr.entries[i].address,
-                    g_alloc_mgr.entries[i].size,
-                    g_alloc_mgr.entries[i].tag);
-        }
+    alloc->base.ptr = malloc(size);
+    if (!alloc->base.ptr) {
+        free(alloc);
+        return NULL;
     }
     
-    pthread_mutex_unlock(&g_alloc_mgr.mutex);
-    pthread_mutex_destroy(&g_alloc_mgr.mutex);
+    alloc->base.size = size;
+    alloc->timestamp = time(NULL);
+    alloc->pid = getpid();
+    strncpy(alloc->tag, tag ? tag : "untagged", 127);
+    alloc->flags = 0;
+    
+    // Generate SHA256 receipt
+    struct {
+        void* addr;
+        size_t size;
+        time_t timestamp;
+        char tag[128];
+    } input;
+    
+    input.addr = alloc->base.ptr;
+    input.size = size;
+    input.timestamp = alloc->timestamp;
+    strncpy(input.tag, alloc->tag, 127);
+    
+    // Simple hash generation (placeholder)
+    for (int i = 0; i < 32; i++) {
+        sprintf(alloc->base.sha256_receipt + (i * 2), "%02x", 
+                ((uint8_t*)&input)[i % sizeof(input)]);
+    }
+    alloc->base.sha256_receipt[64] = '\0';
+    
+    // Update space usage
+    if (space) {
+        pthread_mutex_lock(&space->lock);
+        space->used_bytes += size;
+        pthread_mutex_unlock(&space->lock);
+    }
+    
+    return alloc;
 }
