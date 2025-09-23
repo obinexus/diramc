@@ -13,7 +13,7 @@ BIN_DIR = bin
 INCLUDE_DIR = include
 
 # Source files
-CLI_SRCS = $(SRC_DIR)/cli/main_enhanced.c
+CLI_SRCS = $(SRC_DIR)/cli/main.c
 CORE_SRCS = $(wildcard $(SRC_DIR)/core/*.c) \
             $(wildcard $(SRC_DIR)/core/feature-alloc/*.c) \
             $(wildcard $(SRC_DIR)/core/hotwire/*.c) \

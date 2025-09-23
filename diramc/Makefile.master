@@ -1,0 +1,27 @@
+# OBINexus DIRAM Master Build Orchestrator
+# Implements nlink → polybuild build flow
+
+.PHONY: all core libs cli test clean
+
+all: core libs cli
+
+core:
+	@echo "[OBINEXUS] Building core components..."
+	@$(MAKE) -f Makefile.core
+
+libs: core
+	@echo "[OBINEXUS] Building libraries..."
+	@$(MAKE) -f Makefile.libs
+
+cli: libs
+	@echo "[OBINEXUS] Building CLI..."
+	@$(MAKE) -f Makefile.cli
+
+test: all
+	@echo "[OBINEXUS] Running compliance tests..."
+	@$(MAKE) -f Makefile.test
+
+clean:
+	@$(MAKE) -f Makefile.core clean
+	@$(MAKE) -f Makefile.libs clean
+	@$(MAKE) -f Makefile.cli clean
