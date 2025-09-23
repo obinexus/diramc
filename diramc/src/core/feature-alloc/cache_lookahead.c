@@ -84,15 +84,22 @@ int prefetch_by_phenomenon(diram_context_t* ctx, phenotype_t predicted) {
     // Navigate DAG to predicted state
     dag_node_t* predicted_state = diram_navigate_dag(ctx, predicted);
     
-    // Determine prefetch size based on predicted phenomena
+    // Use predicted_state for enhanced prefetch decisions
     size_t prefetch_size = 0;
     
-    if (predicted.fields.frequency >= 5) {
-        prefetch_size = 4096;  // High frequency - prefetch more
-    } else if (predicted.fields.locality >= 10) {
-        prefetch_size = 2048;  // High locality - medium prefetch
+    if (predicted_state != NULL) {
+        // Adjust prefetch based on DAG node stability
+        float stability = predicted_state->stability_score;
+        if (stability > 0.8f && predicted.fields.frequency >= 5) {
+            prefetch_size = 4096;  // High frequency + stable - prefetch more
+        } else if (predicted.fields.locality >= 10) {
+            prefetch_size = 2048;  // High locality - medium prefetch
+        } else {
+            prefetch_size = 1024;  // Default prefetch
+        }
     } else {
-        prefetch_size = 1024;  // Default prefetch
+        // Fallback if DAG navigation fails
+        prefetch_size = 1024;
     }
     
     // Perform speculative allocation

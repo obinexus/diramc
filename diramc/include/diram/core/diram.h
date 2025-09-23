@@ -93,4 +93,21 @@ int diram_space_check_limit(diram_memory_space_t* space, size_t requested);
 void diram_error_index_init(void);
 void diram_error_index_shutdown(void);
 
+
+// Core DIRAM allocation functions
+void* diram_alloc(diram_context_t* ctx, size_t size, phenotype_t intent);
+void diram_free(diram_context_t* ctx, void* memory);
+
+// Phenomenological operations
+phenotype_t diram_observe(diram_context_t* ctx, void* memory, size_t size);
+dag_node_t* diram_navigate_dag(diram_context_t* ctx, phenotype_t target);
+
+// Similarity and state computation
+float compute_phenotype_similarity(phenotype_t a, phenotype_t b);
+axial_state_t compute_axial_state(phenotype_t pheno, axial_state_t previous);
+axial_state_t compute_axial_intent(phenotype_t current, phenotype_t intent, dag_node_t* target);
+
+// Context management
+diram_context_t* diram_init(void);
+void diram_destroy(diram_context_t* ctx);
 #endif // DIRAM_CORE_H
