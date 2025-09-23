@@ -9,7 +9,38 @@
 // Forward declarations
 typedef struct diram_memory_space diram_memory_space_t;
 typedef struct diram_enhanced_allocation diram_enhanced_allocation_t;
+// Result union - FIX THIS SECTION
+    union {
+        diram_enhanced_allocation_t* resolved_allocation;
+        struct {
+            int code;                  // Error code
+            time_t timestamp;          // When rejection occurred  
+            pid_t pid;                 // Process ID
+            const char* file;          // Source file
+            int line;                  // Source line
+            char context[256];         // Error message
+            int severity;              // Severity level
+        } rejection_context;
+    } result;
+    
+// ... rest of file ...
 
+// Add missing rejection reason
+typedef enum {
+    REJECT_REASON_MEMORY_EXHAUSTED,
+    REJECT_REASON_TIMEOUT,
+    REJECT_REASON_CANCELLED,
+    REJECT_REASON_FATAL_ERROR,
+    REJECT_REASON_GOVERNANCE_VIOLATION  // Add this
+} diram_reject_reason_t;
+
+// Add function declarations that are missing
+int diram_promise_resolve(diram_async_promise_t* promise, 
+                         diram_enhanced_allocation_t* alloc);
+int diram_promise_reject(diram_async_promise_t* promise, 
+                        diram_reject_reason_t reason, 
+                        const char* msg);
+diram_status_t diram_promise_get_status(diram_async_promise_t* promise);
 // Promise states
 typedef enum {
     PROMISE_STATE_PENDING,
