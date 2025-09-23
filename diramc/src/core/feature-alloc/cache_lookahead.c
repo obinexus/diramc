@@ -1,36 +1,6 @@
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include "diram/core/diram.h"
-#include "diram/core/diram_phenomenological.h"
-#include "diram/core/feature-alloc/alloc.h"
-
-// Forward declarations if DAG not yet defined
-typedef struct dag_node {
-    uint32_t edge_count;
-    struct dag_edge** edges;
-} dag_node_t;
-
-typedef struct dag_edge {
-    phenotype_t trigger;
-    float probability;
-} dag_edge_t;
-
-// Helper functions
-static uint32_t detect_pattern_length(phenotype_t* seq, uint32_t len) {
-    // Simple pattern detection stub
-    return len > 4 ? 2 : 0;
-}
-
-static dag_node_t* diram_navigate_dag(diram_context_t* ctx, phenotype_t pheno) {
-    // Navigation stub
-    return NULL;
-}
-
-static void mark_memory_speculative(void* ptr, size_t size) {
-    // Speculation marker stub
-    (void)ptr; (void)size;
-}
+// ============================================================================
+// src/feature-alloc/cache_lookahead.c - Predictive phenomena for OBINexus DIRAM
+// ============================================================================
 
 #include <stdint.h>
 #include <stdio.h>
@@ -39,43 +9,30 @@ static void mark_memory_speculative(void* ptr, size_t size) {
 #include "diram/core/diram_phenomenological.h"
 #include "diram/core/feature-alloc/alloc.h"
 
-// Forward declarations if DAG not yet defined
-typedef struct dag_node {
-    uint32_t edge_count;
-    struct dag_edge** edges;
-} dag_node_t;
-
-typedef struct dag_edge {
-    phenotype_t trigger;
-    float probability;
-} dag_edge_t;
+// Remove the duplicate typedefs - they're already in diram_phenomenological.h
+// Only define helper functions that aren't in the headers
 
 // Helper functions
 static uint32_t detect_pattern_length(phenotype_t* seq, uint32_t len) {
     // Simple pattern detection stub
+    (void)seq; // Suppress unused warning
     return len > 4 ? 2 : 0;
 }
 
 static dag_node_t* diram_navigate_dag(diram_context_t* ctx, phenotype_t pheno) {
     // Navigation stub
+    (void)ctx;   // Suppress unused warning
+    (void)pheno; // Suppress unused warning
     return NULL;
 }
 
 static void mark_memory_speculative(void* ptr, size_t size) {
     // Speculation marker stub
-    (void)ptr; (void)size;
+    (void)ptr; 
+    (void)size;
 }
 
-
-
-// ============================================================================
-// src/feature-alloc/cache_lookahead.c - Predictive phenomena
-// ============================================================================
-
-#include <stdint.h>
-#include "diram/core/diram_phenomenological.h"
-#include "diram/core/diram_dag.h"
-#include "diram/core/diram.h"
+// Phenomenon predictor structure
 typedef struct {
     phenotype_t observed_sequence[32];  // Recent phenomena observations
     uint32_t sequence_length;
