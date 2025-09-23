@@ -2,6 +2,9 @@
 #define DIRAM_PHENOMENOLOGICAL_H
 
 #include <stdint.h>
+#include <stdint.h>
+#include <stddef.h>  // For size_t
+#include <stdbool.h> // For bool type
 
 // Phenomenological type capturing observable memory phenomena
 typedef union {
@@ -45,7 +48,10 @@ typedef struct dag_node {
     uint32_t edge_count;
     uint32_t edge_capacity;
     uint32_t observation_count;
+    float observation_confidence; 
+    float stability_score;         
 } dag_node_t;
+
 
 // DAG edge with probabilistic transition
 typedef struct dag_edge {
@@ -57,13 +63,16 @@ typedef struct dag_edge {
 } dag_edge_t;
 
 // Triple-stream processing result
+
 typedef struct {
     uint64_t stream_a;  // Primary intent stream
     uint64_t stream_b;  // Verification stream
     uint64_t stream_c;  // Governance stream
+    bool verified;      // Add verification status
 } triple_stream_result_t;
 
 // Triple-stream processor
+typedef struct triple_stream triple_stream_t;
 typedef struct {
     triple_stream_result_t current;
     triple_stream_result_t previous;

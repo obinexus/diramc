@@ -71,11 +71,11 @@ uint64_t encode_primary_intent(uint16_t x_intent) {
 }
 
 uint64_t encode_verification(uint16_t y_verify) {
-    return ((uint64_t)y_verify << 24) | 0xVERIFY;
+return ((uint64_t)y_verify << 24) | 0x56455249;
 }
 
 uint64_t encode_governance(uint16_t z_govern) {
-    return ((uint64_t)z_govern << 16) | 0xG0VERN;
+    return ((uint64_t)z_govern << 16) | 0x474F5645; // "GOVE" in hex
 }
 
 // Memory phenomena extraction - stub implementations
