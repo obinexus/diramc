@@ -4,6 +4,10 @@
 // src/feature-alloc/cache_lookahead.c - Predictive phenomena
 // ============================================================================
 
+#include <stdint.h>
+#include "diram/core/diram_phenomenological.h"
+#include "diram/core/diram_dag.h"
+#include "diram/core/diram.h"
 typedef struct {
     phenotype_t observed_sequence[32];  // Recent phenomena observations
     uint32_t sequence_length;

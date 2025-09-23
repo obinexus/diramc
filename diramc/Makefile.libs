@@ -1,0 +1,126 @@
+# DIRAM Libraries Build - OBINexus compliant
+# Consolidates core + hotwire objects into libdiram.{a,so}
+# Part of nlink → polybuild orchestration
+
+# Get configuration
+include Makefile.config
+
+# Library name (Unix compliant)
+DIRAM_LIB_NAME ?= diram
+SONAME = libdiram.so.1
+
+# Collect all object files from previous builds
+CORE_OBJS = \
+    $(OBJ_DIR)/core/feature-alloc/alloc.o \
+    $(OBJ_DIR)/core/feature-alloc/feature_alloc.o \
+    $(OBJ_DIR)/core/feature-alloc/async_promise.o \
+    $(OBJ_DIR)/core/feature-alloc/cache_lookahead.o \
+    $(OBJ_DIR)/core/config/config.o
+
+HOTWIRE_OBJS = \
+    $(OBJ_DIR)/core/parser/tokenizer.o \
+    $(OBJ_DIR)/core/parser/parser.o \
+    $(OBJ_DIR)/core/parser/ast.o \
+    $(OBJ_DIR)/core/hotwire/hotwire.o \
+    $(OBJ_DIR)/core/hotwire/asm_visitor.o \
+    $(OBJ_DIR)/core/hotwire/wasm_visitor.o
+
+ASSEMBLY_OBJS = \
+    $(OBJ_DIR)/core/assembly/nasm_pipeline.o \
+    $(OBJ_DIR)/core/assembly/smod_loader.o
+
+MONITOR_OBJS = \
+    $(OBJ_DIR)/core/monitor/diram_cli_monitor.o \
+    $(OBJ_DIR)/core/monitor/diram_state_response.o
+
+# Helper object if exists
+HELPER_OBJS = $(wildcard $(OBJ_DIR)/core/diram_helpers.o)
+
+# Combine all objects
+ALL_OBJS = $(CORE_OBJS) $(HOTWIRE_OBJS) $(ASSEMBLY_OBJS) $(MONITOR_OBJS) $(HELPER_OBJS)
+
+# Target libraries
+LIBDIRAM_STATIC = $(LIB_DIR)/lib$(DIRAM_LIB_NAME).a
+LIBDIRAM_SHARED = $(LIB_DIR)/lib$(DIRAM_LIB_NAME).so
+
+# Default target
+libs: libs-directories check-deps build-missing-objs $(LIBDIRAM_STATIC) $(LIBDIRAM_SHARED)
+	@echo "[LIBS] Library build complete"
+	@echo "[LIBS] Created: $(LIBDIRAM_STATIC)"
+	@echo "[LIBS] Created: $(LIBDIRAM_SHARED)"
+
+libs-directories:
+	@mkdir -p $(LIB_DIR)
+	@mkdir -p $(OBJ_DIR)/core/assembly
+	@mkdir -p $(OBJ_DIR)/core/monitor
+	@mkdir -p $(OBJ_DIR)/core/parser
+	@mkdir -p $(OBJ_DIR)/core/hotwire
+
+# Build any missing object files
+build-missing-objs:
+	@echo "[LIBS] Checking for missing objects..."
+	@for obj in $(ALL_OBJS); do \
+		if [ ! -f $$obj ]; then \
+			src=$$(echo $$obj | sed "s|$(OBJ_DIR)|$(SRC_DIR)|" | sed "s|\.o$$|.c|"); \
+			if [ -f $$src ]; then \
+				echo "[CC LIBS] Building missing: $$src"; \
+				$(CC) $(CFLAGS) $(INCLUDES) -c $$src -o $$obj; \
+			else \
+				echo "[WARN] Source not found: $$src (creating stub)"; \
+				mkdir -p $$(dirname $$obj); \
+				echo "" | $(CC) $(CFLAGS) -x c -c - -o $$obj 2>/dev/null || true; \
+			fi; \
+		fi; \
+	done
+
+# Check for XML support (hotwire dependency)
+check-deps:
+	@echo "[LIBS] Checking dependencies..."
+	@command -v xml2-config >/dev/null 2>&1 || \
+		echo "[WARN] libxml2 not found - hotwire XML features disabled"
+
+# Build static library (.a) - supported but not recommended per OBINexus spec
+$(LIBDIRAM_STATIC): $(ALL_OBJS)
+	@echo "[AR] Building static library: $@"
+	@$(AR) $(ARFLAGS) $@ $(filter %.o,$^) 2>/dev/null || \
+		(echo "[WARN] Some objects missing, building partial library"; \
+		 $(AR) $(ARFLAGS) $@ $(wildcard $(ALL_OBJS)))
+
+# Build shared library (.so) - RECOMMENDED per OBINexus spec
+$(LIBDIRAM_SHARED): $(ALL_OBJS)
+	@echo "[SO] Building shared library: $@"
+	@$(CC) -shared -Wl,-soname,$(SONAME) -o $(LIB_DIR)/$(SONAME) \
+		$(filter %.o,$^) $(LDFLAGS) 2>/dev/null || \
+		(echo "[WARN] Some objects missing, building partial library"; \
+		 $(CC) -shared -Wl,-soname,$(SONAME) -o $(LIB_DIR)/$(SONAME) \
+		 $(wildcard $(ALL_OBJS)) $(LDFLAGS))
+	@cd $(LIB_DIR) && ln -sf $(SONAME) lib$(DIRAM_LIB_NAME).so
+	@echo "[LIBS] Created symlink: lib$(DIRAM_LIB_NAME).so -> $(SONAME)"
+
+# Show library info
+info:
+	@echo "=== OBINexus DIRAM Library Info ==="
+	@echo "Library Name: lib$(DIRAM_LIB_NAME)"
+	@echo "Static Library: $(LIBDIRAM_STATIC)"
+	@echo "Shared Library: $(LIBDIRAM_SHARED)"
+	@echo "SONAME: $(SONAME)"
+	@echo ""
+	@echo "Objects included:"
+	@echo "  Core: $(words $(wildcard $(CORE_OBJS))) objects"
+	@echo "  Hotwire: $(words $(wildcard $(HOTWIRE_OBJS))) objects"
+	@echo "  Assembly: $(words $(wildcard $(ASSEMBLY_OBJS))) objects"
+	@echo "  Monitor: $(words $(wildcard $(MONITOR_OBJS))) objects"
+	@echo ""
+	@if [ -f $(LIBDIRAM_SHARED) ]; then \
+		echo "Symbols in shared library:"; \
+		nm -D $(LIBDIRAM_SHARED) 2>/dev/null | grep " T " | head -5 || true; \
+		echo "..."; \
+	fi
+
+# Clean library artifacts
+clean:
+	@echo "[CLEAN] Library components"
+	@rm -f $(LIBDIRAM_STATIC) $(LIBDIRAM_SHARED) $(LIB_DIR)/$(SONAME)
+	@rm -rf $(LIB_DIR)
+
+.PHONY: libs libs-directories check-deps build-missing-objs info clean

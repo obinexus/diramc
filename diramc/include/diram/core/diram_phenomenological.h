@@ -72,7 +72,6 @@ typedef struct {
 } triple_stream_result_t;
 
 // Triple-stream processor
-typedef struct triple_stream triple_stream_t;
 typedef struct {
     triple_stream_result_t current;
     triple_stream_result_t previous;
