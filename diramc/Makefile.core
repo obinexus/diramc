@@ -3,7 +3,8 @@
 
 # Get configuration
 include Makefile.config
-
+# Core module sources (add this line)
+SOURCES += src/core/diram_helpers.c
 # Core sources
 CORE_SRCS = \
     $(SRC_DIR)/core/feature-alloc/alloc.c \
