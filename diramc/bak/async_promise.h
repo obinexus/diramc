@@ -5,16 +5,42 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <time.h>
-#include <sys/types.h>
 
 // Forward declarations
 typedef struct diram_memory_space diram_memory_space_t;
 typedef struct diram_enhanced_allocation diram_enhanced_allocation_t;
-typedef struct diram_status {
-    uint32_t err;
-    int ok;
-} diram_status_t;
+// Result union - FIX THIS SECTION
+    union {
+        diram_enhanced_allocation_t* resolved_allocation;
+        struct {
+            int code;                  // Error code
+            time_t timestamp;          // When rejection occurred  
+            pid_t pid;                 // Process ID
+            const char* file;          // Source file
+            int line;                  // Source line
+            char context[256];         // Error message
+            int severity;              // Severity level
+        } rejection_context;
+    } result;
+    
+// ... rest of file ...
 
+// Add missing rejection reason
+typedef enum {
+    REJECT_REASON_MEMORY_EXHAUSTED,
+    REJECT_REASON_TIMEOUT,
+    REJECT_REASON_CANCELLED,
+    REJECT_REASON_FATAL_ERROR,
+    REJECT_REASON_GOVERNANCE_VIOLATION  // Add this
+} diram_reject_reason_t;
+
+// Add function declarations that are missing
+int diram_promise_resolve(diram_async_promise_t* promise, 
+                         diram_enhanced_allocation_t* alloc);
+int diram_promise_reject(diram_async_promise_t* promise, 
+                        diram_reject_reason_t reason, 
+                        const char* msg);
+diram_status_t diram_promise_get_status(diram_async_promise_t* promise);
 // Promise states
 typedef enum {
     PROMISE_STATE_PENDING,
@@ -22,13 +48,12 @@ typedef enum {
     PROMISE_STATE_REJECTED
 } diram_promise_state_t;
 
-// Rejection reasons - SINGLE DEFINITION
+// Rejection reasons
 typedef enum {
     REJECT_REASON_MEMORY_EXHAUSTED,
     REJECT_REASON_TIMEOUT,
     REJECT_REASON_CANCELLED,
-    REJECT_REASON_FATAL_ERROR,
-    REJECT_REASON_GOVERNANCE_VIOLATION
+    REJECT_REASON_FATAL_ERROR
 } diram_reject_reason_t;
 
 // Promise receipt
@@ -42,7 +67,7 @@ typedef struct {
     char allocation_receipt[65];  // SHA256 hex
 } diram_promise_receipt_t;
 
-// Main promise structure - COMPLETE DEFINITION
+// Main promise structure
 typedef struct diram_async_promise {
     diram_promise_receipt_t receipt;
     pthread_mutex_t state_mutex;
@@ -56,43 +81,20 @@ typedef struct diram_async_promise {
     size_t lookahead_size;
     uint32_t cache_priority;
     
-    // Result union - NOW INSIDE THE STRUCT
+    // Result union
     union {
         diram_enhanced_allocation_t* resolved_allocation;
         struct {
-            int code;                  // Error code
-            time_t timestamp;          // When rejection occurred  
-            pid_t pid;                 // Process ID
-            const char* file;          // Source file
-            int line;                  // Source line
-            char context[256];         // Error message
-            int severity;              // Severity level
+            int errno_code;
         } rejection_context;
     } result;
 } diram_async_promise_t;
 
-// API functions - DECLARED AFTER TYPE DEFINITIONS
+// API functions
 diram_async_promise_t* diram_alloc_async(size_t size, const char* tag, 
                                           diram_memory_space_t* space, 
                                           size_t lookahead_hint);
-
-diram_async_promise_t* diram_alloc_with_lookahead(size_t size, const char* tag,
-                                                   diram_memory_space_t* space,
-                                                   uint32_t access_pattern_hint);
-
 int diram_promise_await(diram_async_promise_t* promise, uint64_t timeout_ms);
-int diram_promise_resolve(diram_async_promise_t* promise, 
-                         diram_enhanced_allocation_t* alloc);
-int diram_promise_reject(diram_async_promise_t* promise, 
-                        diram_reject_reason_t reason, 
-                        const char* msg);
 void diram_promise_destroy(diram_async_promise_t* promise);
-diram_status_t diram_promise_get_status(diram_async_promise_t* promise);
-
-// Missing constants needed by implementation
-#define DIRAM_SHA256_HEX_LEN           65
-#define DIRAM_ERR_NONE                 0x0000
-#define DIRAM_ERR_MEMORY_EXHAUSTED     0x1001
-#define DIRAM_ERR_GOVERNANCE_FAIL      0x1011
 
 #endif // DIRAM_ASYNC_PROMISE_H

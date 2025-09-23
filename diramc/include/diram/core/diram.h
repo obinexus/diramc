@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <sys/types.h>
+#include <pthread.h>
+#include <unistd.h>
 
 // Error codes aligned with OBINexus governance
 #define DIRAM_ERR_NONE                 0x0000
@@ -25,12 +27,15 @@ typedef struct {
     int ok;
 } diram_status_t;
 
-// Memory space structure
+// Memory space structure - CORRECTED TO MATCH feature_alloc.c
 typedef struct diram_memory_space {
-    void* base;
-    size_t size;
-    uint32_t flags;
-    char name[64];
+    char space_name[64];       // Name of the space
+    size_t limit_bytes;        // Maximum bytes allowed
+    size_t used_bytes;         // Currently used bytes
+    pid_t owner_pid;           // Owner process ID
+    pthread_mutex_t lock;      // Synchronization lock
+    void* base;                // Base address
+    uint32_t flags;            // Configuration flags
 } diram_memory_space_t;
 
 // Base allocation structure
@@ -55,5 +60,12 @@ diram_enhanced_allocation_t* diram_alloc_enhanced(
     const char* tag,
     diram_memory_space_t* space
 );
+
+// Space management functions (declared by feature_alloc.c)
+diram_memory_space_t* diram_space_create(const char* name, size_t limit);
+void diram_space_destroy(diram_memory_space_t* space);
+int diram_space_check_limit(diram_memory_space_t* space, size_t requested);
+void diram_error_index_init(void);
+void diram_error_index_shutdown(void);
 
 #endif // DIRAM_CORE_H
