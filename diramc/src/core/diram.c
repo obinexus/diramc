@@ -3,9 +3,11 @@
 // src/core/diram.c - Core implementation
 // ============================================================================
 
-#include "./include/diram/core/diram.h"
+#include "diram/core/diram.h"
 #include <math.h>
 #include <string.h>
+#include <stdlib.h>
+#include <stdbool.h>
 
 // Initialize phenomenological observer
 diram_context_t* diram_init(void) {
