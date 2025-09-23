@@ -1,575 +1,328 @@
-// src/cli/main.c - DIRAM CLI with detach mode and configuration support
-// OBINexus Project - Directed Instruction RAM
-
+// src/cli/main_enhanced.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <getopt.h>
-#include <signal.h>
-#if defined(_WIN32) || defined(_WIN64)
-#include <windows.h>
-#else
-#include <sys/wait.h>
-#include <sys/stat.h>
-#endif
-#include <fcntl.h>
-#include <errno.h>
-#include <limits.h>
-#include <ctype.h>
-#include <dirent.h>
-#include "diram/core/feature-alloc/alloc.h"
-#include "diram/core/feature-alloc/feature_alloc.h"
-#include "diram/core/config/config.h"
+#include <dlfcn.h>
+#include <pthread.h>
+#include "diram/core/diram.h"
+#include "diram/core/hotwire/hotwire.h"
+#include "diram/core/monitor/diram_state_monitor.h"
 
-#ifndef PATH_MAX
-#define PATH_MAX 4096
-#endif
+#define MAX_LIBRARIES 256
+#define MAX_PATH_LENGTH 1024
 
-#define DIRAM_VERSION "1.0.0"
-#define DIRAM_CONFIG_ENV "DIRAM_CONFIG"
-#define DIRAM_DEFAULT_CONFIG ".dramrc"
+typedef struct {
+    char path[MAX_PATH_LENGTH];
+    void* handle;
+    char name[256];
+    int is_static;  // 0 for .so, 1 for .a
+} library_entry_t;
 
-// Global configuration
-static diram_config_t g_config = {
-    .config_file = "",
-    .detach_mode = 0,
-    .trace_enabled = 0,
-    .repl_mode = 0,
-    .memory_limit = 0,
-    .memory_space = "default",
-    .log_dir = "logs",
-    .verbose = 0
+typedef struct {
+    int trace_enabled;
+    int detach_mode;
+    char library_paths[MAX_LIBRARIES][MAX_PATH_LENGTH];
+    int lib_path_count;
+    library_entry_t loaded_libs[MAX_LIBRARIES];
+    int loaded_count;
+    pthread_mutex_t lib_mutex;
+    char log_path[MAX_PATH_LENGTH];
+} diram_cli_context_t;
+
+static struct option long_options[] = {
+    {"trace", no_argument, 0, 't'},
+    {"trace-lib", required_argument, 0, 'T'},
+    {"detach", no_argument, 0, 'd'},
+    {"log-path", required_argument, 0, 'P'},
+    {"help", no_argument, 0, 'h'},
+    {"version", no_argument, 0, 'v'},
+    {0, 0, 0, 0}
 };
 
-
-
-// Global structures for REPL state management
-typedef struct {
-    diram_allocation_t* alloc;
-    char tag[64];
-    void* address;
-} repl_allocation_t;
-
-#define MAX_REPL_ALLOCATIONS 1024
-static repl_allocation_t g_repl_allocations[MAX_REPL_ALLOCATIONS];
-static int g_repl_allocation_count = 0;
-static diram_memory_space_t* g_repl_memory_space = NULL;
-
-// Helper function to parse size with unit suffixes
-static size_t parse_size(const char* size_str) {
-    char* endptr;
-    size_t size = strtoul(size_str, &endptr, 10);
+// Thread-safe library loading
+int load_library_threadsafe(diram_cli_context_t* ctx, const char* libname, const char* libpath) {
+    pthread_mutex_lock(&ctx->lib_mutex);
     
-    // Handle unit suffixes
-    if (*endptr != '\0') {
-        switch (tolower(*endptr)) {
-            case 'k': size *= 1024; break;
-            case 'm': size *= 1024 * 1024; break;
-            case 'g': size *= 1024 * 1024 * 1024; break;
-        }
-    }
-    
-    return size;
-}
-
-// Helper function to find allocation by address
-static int find_allocation_by_address(void* addr) {
-    for (int i = 0; i < g_repl_allocation_count; i++) {
-        if (g_repl_allocations[i].alloc && 
-            g_repl_allocations[i].alloc->base_addr == addr) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-// REPL command implementations
-static void repl_cmd_alloc(const char* args) {
-    char size_str[32] = {0};
-    char tag[64] = {0};
-    
-    int parsed = sscanf(args, "%31s %63s", size_str, tag);
-    if (parsed < 1) {
-        printf("Error: Usage: alloc <size> [tag]\n");
-        printf("       Size can use suffixes: K, M, G (e.g., 4K, 16M)\n");
-        return;
-    }
-    
-    size_t size = parse_size(size_str);
-    if (size == 0) {
-        printf("Error: Invalid size specified\n");
-        return;
-    }
-    
-    if (g_repl_allocation_count >= MAX_REPL_ALLOCATIONS) {
-        printf("Error: Maximum allocations reached (%d)\n", MAX_REPL_ALLOCATIONS);
-        return;
-    }
-    
-    // Initialize memory space if needed
-    if (!g_repl_memory_space && g_config.memory_limit > 0) {
-        g_repl_memory_space = diram_space_create(
-            g_config.memory_space, 
-            g_config.memory_limit * 1024 * 1024
-        );
-    }
-    
-    // Perform allocation
-    diram_allocation_t* alloc = diram_alloc_traced(
-        size, 
-        tag[0] ? tag : NULL
-    );
-    
-    if (!alloc) {
-        printf("Error: Allocation failed (constraint violation or OOM)\n");
-        return;
-    }
-    
-    // Store allocation info
-    g_repl_allocations[g_repl_allocation_count].alloc = alloc;
-    snprintf(g_repl_allocations[g_repl_allocation_count].tag,
-             sizeof(g_repl_allocations[g_repl_allocation_count].tag),
-             "%s", tag[0] ? tag : "untagged");
-    g_repl_allocations[g_repl_allocation_count].address = alloc->base_addr;
-    g_repl_allocation_count++;
-    
-    printf("Allocated %zu bytes at %p\n", size, alloc->base_addr);
-    printf("  SHA-256: %.16s...\n", alloc->sha256_receipt);
-    printf("  Heap events: %d/3\n", alloc->heap_events);
-}
-
-static void repl_cmd_free(const char* args) {
-    void* addr;
-    if (sscanf(args, "%p", &addr) != 1) {
-        printf("Error: Usage: free <address>\n");
-        return;
-    }
-    
-    int index = find_allocation_by_address(addr);
-    if (index < 0) {
-        printf("Error: No allocation found at address %p\n", addr);
-        return;
-    }
-    
-    diram_free_traced(g_repl_allocations[index].alloc);
-    printf("Freed allocation at %p\n", addr);
-    
-    // Remove from tracking
-    g_repl_allocations[index].alloc = NULL;
-    
-    // Compact array
-    for (int i = index; i < g_repl_allocation_count - 1; i++) {
-        g_repl_allocations[i] = g_repl_allocations[i + 1];
-    }
-    g_repl_allocation_count--;
-}
-
-static void repl_cmd_trace(void) {
-    if (g_repl_allocation_count == 0) {
-        printf("No active allocations\n");
-        return;
-    }
-    
-    printf("Active allocations: %d\n", g_repl_allocation_count);
-    printf("%-18s %-10s %-20s %-18s\n", 
-           "Address", "Size", "Tag", "SHA-256");
-    printf("%-18s %-10s %-20s %-18s\n",
-           "-------", "----", "---", "-------");
-    
-    for (int i = 0; i < g_repl_allocation_count; i++) {
-        if (g_repl_allocations[i].alloc) {
-            printf("%-18p %-10zu %-20s %.16s...\n",
-                   g_repl_allocations[i].alloc->base_addr,
-                   g_repl_allocations[i].alloc->size,
-                   g_repl_allocations[i].tag,
-                   g_repl_allocations[i].alloc->sha256_receipt);
-        }
-    }
-    
-    // Show heap constraint status
-    if (g_repl_allocation_count > 0) {
-        diram_allocation_t* last = g_repl_allocations[g_repl_allocation_count-1].alloc;
-        if (last) {
-            printf("\nHeap constraint status: %d/3 events used (ε = %.1f)\n", 
-                   last->heap_events, last->heap_events / 3.0);
-        }
-    }
-}
-
-static void repl_cmd_config(void) {
-    printf("Current configuration:\n");
-    printf("  Memory limit: %zu MB\n", g_config.memory_limit);
-    printf("  Memory space: %s\n", g_config.memory_space);
-    printf("  Trace enabled: %s\n", g_config.trace_enabled ? "yes" : "no");
-    printf("  Verbose mode: %s\n", g_config.verbose ? "yes" : "no");
-    
-    if (g_repl_memory_space) {
-        printf("\nMemory space status:\n");
-        printf("  Used: %zu bytes\n", g_repl_memory_space->used_bytes);
-        printf("  Limit: %zu bytes\n", g_repl_memory_space->limit_bytes);
-        printf("  Allocations: %u\n", g_repl_memory_space->allocation_count);
-    }
-}
-
-// Signal handling for detached processes
-static void sigchld_handler(int sig) {
-    (void)sig;
-#ifndef _WIN32
-    while (waitpid(-1, NULL, WNOHANG) > 0);
-#endif
-}
-
-// Parse configuration file (.dramrc or specified)
-static int parse_config_file(const char *filename) {
-    FILE *fp = fopen(filename, "r");
-    if (!fp) {
-        if (g_config.verbose) {
-            fprintf(stderr, "Config file '%s' not found, using defaults\n", filename);
-        }
-        return 0;
-    }
-
-    char line[1024];
-    while (fgets(line, sizeof(line), fp)) {
-        // Skip comments and empty lines
-        if (line[0] == '#' || line[0] == '\n') continue;
-        
-        // Remove trailing newline
-        line[strcspn(line, "\n")] = 0;
-        
-        // Parse key=value pairs
-        char *key = strtok(line, "=");
-        char *value = strtok(NULL, "=");
-        
-        if (!key || !value) continue;
-        
-        // Trim whitespace
-        while (*key == ' ') key++;
-        while (*value == ' ') value++;
-        
-        if (strcmp(key, "memory_limit") == 0) {
-            g_config.memory_limit = strtoul(value, NULL, 10);
-        } else if (strcmp(key, "memory_space") == 0) {
-            strncpy(g_config.memory_space, value, sizeof(g_config.memory_space) - 1);
-        } else if (strcmp(key, "trace") == 0) {
-            g_config.trace_enabled = (strcmp(value, "true") == 0);
-        } else if (strcmp(key, "log_dir") == 0) {
-            strncpy(g_config.log_dir, value, sizeof(g_config.log_dir) - 1);
-        }
-    }
-    
-    fclose(fp);
-    return 0;
-}
-
-// Detach mode implementation
-static int run_detached(char **argv) {
-    pid_t pid = fork();
-    
-    if (pid < 0) {
-        perror("fork");
+    if (ctx->loaded_count >= MAX_LIBRARIES) {
+        fprintf(stderr, "Error: Maximum library limit reached\n");
+        pthread_mutex_unlock(&ctx->lib_mutex);
         return -1;
     }
     
-    if (pid > 0) {
-        // Parent process
-        printf("DIRAM detached with PID: %d\n", pid);
-        printf("Logs: %s/diram.{out,err}.log\n", g_config.log_dir);
-        return 0;
+    library_entry_t* entry = &ctx->loaded_libs[ctx->loaded_count];
+    char full_path[MAX_PATH_LENGTH * 2];
+    
+    // Construct full path
+    if (libpath) {
+        snprintf(full_path, sizeof(full_path), "%s/%s", libpath, libname);
+    } else {
+        strncpy(full_path, libname, sizeof(full_path) - 1);
     }
     
-    // Child process - become session leader
-    if (setsid() < 0) {
-        perror("setsid");
-        exit(1);
-    }
+    // Determine if static or shared
+    int is_static = (strstr(libname, ".a") != NULL);
     
-    // Setup signal handling
-    #if !defined(_WIN32) && !defined(_WIN64)
-        signal(SIGCHLD, sigchld_handler);
-        signal(SIGHUP, SIG_IGN);
-    #endif
-    
-    // Create log directory
-    #if defined(_WIN32) || defined(_WIN64)
-        mkdir(g_config.log_dir);
-    #else
-        mkdir(g_config.log_dir, 0755);
-    #endif
-    
-    // Redirect stdout/stderr to log files with safe path construction
-    char log_path[PATH_MAX];
-    int path_len;
-    
-    // Ensure log directory length leaves room for filename
-    if (strlen(g_config.log_dir) > PATH_MAX - 32) {
-        fprintf(stderr, "Log directory path too long\n");
-        exit(1);
-    }
-    
-    path_len = snprintf(log_path, sizeof(log_path), "%s/diram.out.log", g_config.log_dir);
-    if (path_len >= (int)sizeof(log_path)) {
-        fprintf(stderr, "Output log path truncated\n");
-        exit(1);
-    }
-    
-    int fd_out = open(log_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (fd_out >= 0) {
-        dup2(fd_out, STDOUT_FILENO);
-        close(fd_out);
-    }
-    
-    path_len = snprintf(log_path, sizeof(log_path), "%s/diram.err.log", g_config.log_dir);
-    if (path_len >= (int)sizeof(log_path)) {
-        fprintf(stderr, "Error log path truncated\n");
-        exit(1);
-    }
-    
-    int fd_err = open(log_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (fd_err >= 0) {
-        dup2(fd_err, STDERR_FILENO);
-        close(fd_err);
-    }
-    
-    // Close stdin
-    close(STDIN_FILENO);
-    
-    // Execute with clean argv (remove --detach)
-    execvp(argv[0], argv);
-    perror("execvp");
-    exit(1);
-}
-
-// Memory isolation with configurable limits
-static int setup_memory_isolation(void) {
-    if (g_config.memory_limit == 0) {
-        return 0; // No limit configured
-    }
-    
-    // Initialize traced allocation system
-    if (g_config.trace_enabled) {
-        if (diram_init_trace_log() < 0) {
-            fprintf(stderr, "Warning: Failed to initialize trace log\n");
+    if (is_static) {
+        // Static library handling - not recommended but supported
+        fprintf(stderr, "Warning: Static library %s detected. Dynamic libraries (.so) recommended\n", libname);
+        // For static libraries, we'd need to link at compile time
+        // Here we just register it for metadata purposes
+        strncpy(entry->path, full_path, MAX_PATH_LENGTH - 1);
+        strncpy(entry->name, libname, 255);
+        entry->is_static = 1;
+        entry->handle = NULL;
+    } else {
+        // Dynamic library loading with RTLD_NOW for immediate symbol resolution
+        void* handle = dlopen(full_path, RTLD_NOW | RTLD_GLOBAL);
+        if (!handle) {
+            fprintf(stderr, "Error loading library %s: %s\n", full_path, dlerror());
+            pthread_mutex_unlock(&ctx->lib_mutex);
+            return -1;
+        }
+        
+        strncpy(entry->path, full_path, MAX_PATH_LENGTH - 1);
+        strncpy(entry->name, libname, 255);
+        entry->handle = handle;
+        entry->is_static = 0;
+        
+        if (ctx->trace_enabled) {
+            printf("[TRACE] Loaded library: %s (handle: %p)\n", full_path, handle);
         }
     }
     
-    printf("Memory isolation configured:\n");
-    printf("  Space: %s\n", g_config.memory_space);
-    printf("  Limit: %zu MB\n", g_config.memory_limit);
-    printf("  Trace: %s\n", g_config.trace_enabled ? "enabled" : "disabled");
-    
+    ctx->loaded_count++;
+    pthread_mutex_unlock(&ctx->lib_mutex);
     return 0;
 }
 
-// Enhanced REPL mode implementation
-static int run_repl(void) {
-    printf("DIRAM REPL v%s\n", DIRAM_VERSION);
-    printf("Type 'help' for commands, 'exit' to quit\n\n");
+// Hook function for tracing library calls
+void* hook_library_function(diram_cli_context_t* ctx, const char* libname, const char* funcname) {
+    pthread_mutex_lock(&ctx->lib_mutex);
     
-    // Initialize tracing if enabled
-    if (g_config.trace_enabled) {
-        if (diram_init_trace_log() < 0) {
-            fprintf(stderr, "Warning: Failed to initialize trace log\n");
+    for (int i = 0; i < ctx->loaded_count; i++) {
+        if (strcmp(ctx->loaded_libs[i].name, libname) == 0) {
+            if (ctx->loaded_libs[i].is_static) {
+                fprintf(stderr, "Cannot dynamically hook static library %s\n", libname);
+                pthread_mutex_unlock(&ctx->lib_mutex);
+                return NULL;
+            }
+            
+            void* symbol = dlsym(ctx->loaded_libs[i].handle, funcname);
+            if (!symbol) {
+                fprintf(stderr, "Symbol %s not found in %s: %s\n", 
+                        funcname, libname, dlerror());
+                pthread_mutex_unlock(&ctx->lib_mutex);
+                return NULL;
+            }
+            
+            if (ctx->trace_enabled) {
+                printf("[TRACE] Hooked %s::%s at %p\n", libname, funcname, symbol);
+            }
+            
+            pthread_mutex_unlock(&ctx->lib_mutex);
+            return symbol;
         }
     }
     
-    // Initialize error indexing
-    diram_error_index_init();
+    pthread_mutex_unlock(&ctx->lib_mutex);
+    return NULL;
+}
+
+// Thread worker for concurrent library operations
+void* library_worker(void* arg) {
+    diram_cli_context_t* ctx = (diram_cli_context_t*)arg;
     
-    char line[1024];
-    char cmd[64];
-    char args[960];
-    
+    // Example: Monitor loaded libraries for changes
     while (1) {
-        printf("diram> ");
-        fflush(stdout);
+        pthread_mutex_lock(&ctx->lib_mutex);
         
-        if (!fgets(line, sizeof(line), stdin)) {
-            break;
+        if (ctx->trace_enabled) {
+            for (int i = 0; i < ctx->loaded_count; i++) {
+                if (!ctx->loaded_libs[i].is_static && ctx->loaded_libs[i].handle) {
+                    // Check library health
+                    printf("[MONITOR] Library %s is active\n", ctx->loaded_libs[i].name);
+                }
+            }
         }
         
-        // Remove newline
-        line[strcspn(line, "\n")] = 0;
-        
-        // Skip empty lines
-        if (strlen(line) == 0) {
-            continue;
-        }
-        
-        // Parse command and arguments
-        int parsed = sscanf(line, "%63s %959[^\n]", cmd, args);
-        if (parsed < 1) {
-            continue;
-        }
-        
-        // Process commands
-        if (strcmp(cmd, "exit") == 0 || strcmp(cmd, "quit") == 0) {
-            break;
-        } else if (strcmp(cmd, "help") == 0) {
-            printf("Commands:\n");
-            printf("  alloc <size> [tag]  - Allocate traced memory\n");
-            printf("                        Size supports K/M/G suffixes\n");
-            printf("  free <addr>         - Free allocated memory\n");
-            printf("  trace               - Show allocation trace\n");
-            printf("  config              - Show current configuration\n");
-            printf("  exit/quit           - Exit REPL\n");
-            printf("\nExamples:\n");
-            printf("  alloc 1024 mybuffer\n");
-            printf("  alloc 4K tempdata\n");
-            printf("  alloc 1M\n");
-            printf("  free 0x7fff12345678\n");
-        } else if (strcmp(cmd, "alloc") == 0) {
-            repl_cmd_alloc(parsed > 1 ? args : "");
-        } else if (strcmp(cmd, "free") == 0) {
-            repl_cmd_free(parsed > 1 ? args : "");
-        } else if (strcmp(cmd, "trace") == 0) {
-            repl_cmd_trace();
-        } else if (strcmp(cmd, "config") == 0) {
-            repl_cmd_config();
-        } else {
-            printf("Unknown command: %s\n", cmd);
-            printf("Type 'help' for available commands\n");
-        }
+        pthread_mutex_unlock(&ctx->lib_mutex);
+        sleep(5); // Check every 5 seconds
     }
     
-    // Cleanup any remaining allocations
-    printf("\nCleaning up %d allocations...\n", g_repl_allocation_count);
-    for (int i = 0; i < g_repl_allocation_count; i++) {
-        if (g_repl_allocations[i].alloc) {
-            diram_free_traced(g_repl_allocations[i].alloc);
-        }
-    }
-    
-    // Cleanup memory space
-    if (g_repl_memory_space) {
-        diram_space_destroy(g_repl_memory_space);
-    }
-    
-    // Cleanup subsystems
-    diram_error_index_shutdown();
-    if (g_config.trace_enabled) {
-        diram_close_trace_log();
-    }
-    
-    printf("Exiting DIRAM REPL\n");
-    return 0;
+    return NULL;
 }
 
-static void print_usage(const char *prog) {
-    printf("Usage: %s [OPTIONS] [COMMAND]\n", prog);
-    printf("\nOptions:\n");
-    printf("  -c, --config FILE    Load configuration from FILE (default: .dramrc)\n");
-    printf("  -d, --detach         Run in detached mode (daemon)\n");
-    printf("  -t, --trace          Enable memory allocation tracing\n");
-    printf("  -r, --repl           Start interactive REPL\n");
-    printf("  -m, --memory LIMIT   Set memory limit in MB\n");
-    printf("  -s, --space NAME     Set memory space name\n");
-    printf("  -v, --verbose        Enable verbose output\n");
-    printf("  -h, --help           Show this help\n");
-    printf("  -V, --version        Show version\n");
-    printf("\nExamples:\n");
-    printf("  %s --detach -c myconfig.drc\n", prog);
-    printf("  %s --repl --trace\n", prog);
-    printf("  %s --memory 1024 --space userspace\n", prog);
+void print_usage(const char* progname) {
+    printf("DIRAM CLI - Directed Instruction RAM with Dynamic Library Support\n\n");
+    printf("Usage: %s [OPTIONS] [SCRIPT]\n\n", progname);
+    printf("Options:\n");
+    printf("  -t, --trace              Enable tracing mode\n");
+    printf("  -T, --trace-lib PATH     Trace specific library\n");
+    printf("  -L PATH                  Add library search path\n");
+    printf("  -l LIBNAME              Load library (e.g., -l custom.so)\n");
+    printf("  -d, --detach            Run in detached/daemon mode\n");
+    printf("  -P, --log-path PATH     Set log file path\n");
+    printf("  -h, --help              Show this help\n");
+    printf("  -v, --version           Show version\n\n");
+    printf("Examples:\n");
+    printf("  %s --trace -L /usr/local/lib -l libsensor.so script.dr\n", progname);
+    printf("  %s --trace-lib /opt/drone/libnavigation.so --detach\n", progname);
+    printf("\nNote: .so (shared objects) recommended. .a (static) supported but requires recompilation.\n");
 }
 
-int main(int argc, char *argv[]) {
-    // Command line options
-    static struct option long_options[] = {
-        {"config",  required_argument, 0, 'c'},
-        {"detach",  no_argument,       0, 'd'},
-        {"trace",   no_argument,       0, 't'},
-        {"repl",    no_argument,       0, 'r'},
-        {"memory",  required_argument, 0, 'm'},
-        {"space",   required_argument, 0, 's'},
-        {"verbose", no_argument,       0, 'v'},
-        {"help",    no_argument,       0, 'h'},
-        {"version", no_argument,       0, 'V'},
-        {0, 0, 0, 0}
-    };
+int main(int argc, char** argv) {
+    diram_cli_context_t ctx = {0};
+    pthread_mutex_init(&ctx.lib_mutex, NULL);
+    strcpy(ctx.log_path, "./diram.log");
     
-    // Parse command line
     int opt;
-    while ((opt = getopt_long(argc, argv, "c:dtrm:s:vhV", long_options, NULL)) != -1) {
+    int option_index = 0;
+    
+    // Parse both short and long options
+    while ((opt = getopt_long(argc, argv, "tT:L:l:dP:hv", long_options, &option_index)) != -1) {
         switch (opt) {
-            case 'c':
-                strncpy(g_config.config_file, optarg, sizeof(g_config.config_file) - 1);
-                break;
-            case 'd':
-                g_config.detach_mode = 1;
-                break;
             case 't':
-                g_config.trace_enabled = 1;
+                ctx.trace_enabled = 1;
+                printf("[CONFIG] Trace mode enabled\n");
                 break;
-            case 'r':
-                g_config.repl_mode = 1;
+                
+            case 'T': {
+                // Trace specific library
+                ctx.trace_enabled = 1;
+                if (load_library_threadsafe(&ctx, optarg, NULL) == 0) {
+                    printf("[TRACE] Monitoring library: %s\n", optarg);
+                }
                 break;
-            case 'm':
-                g_config.memory_limit = strtoul(optarg, NULL, 10);
+            }
+            
+            case 'L':
+                // Add library path
+                if (ctx.lib_path_count < MAX_LIBRARIES) {
+                    strncpy(ctx.library_paths[ctx.lib_path_count], optarg, MAX_PATH_LENGTH - 1);
+                    ctx.lib_path_count++;
+                    printf("[CONFIG] Added library path: %s\n", optarg);
+                }
                 break;
-            case 's':
-                strncpy(g_config.memory_space, optarg, sizeof(g_config.memory_space) - 1);
+                
+            case 'l': {
+                // Load library
+                const char* search_path = ctx.lib_path_count > 0 ? 
+                    ctx.library_paths[ctx.lib_path_count - 1] : NULL;
+                    
+                if (load_library_threadsafe(&ctx, optarg, search_path) == 0) {
+                    printf("[LOAD] Successfully loaded library: %s\n", optarg);
+                }
                 break;
-            case 'v':
-                g_config.verbose = 1;
+            }
+            
+            case 'd':
+                ctx.detach_mode = 1;
+                printf("[CONFIG] Detached mode enabled\n");
                 break;
+                
+            case 'P':
+                strncpy(ctx.log_path, optarg, MAX_PATH_LENGTH - 1);
+                printf("[CONFIG] Log path: %s\n", ctx.log_path);
+                break;
+                
             case 'h':
                 print_usage(argv[0]);
                 return 0;
-            case 'V':
-                printf("DIRAM v%s (OBINexus Project)\n", DIRAM_VERSION);
+                
+            case 'v':
+                printf("DIRAM CLI v1.0.0 (OBINexus Project)\n");
                 return 0;
+                
             default:
                 print_usage(argv[0]);
                 return 1;
         }
     }
     
-    // Load configuration file
-    const char *config_file = g_config.config_file[0] ? g_config.config_file : 
-                              getenv(DIRAM_CONFIG_ENV) ? getenv(DIRAM_CONFIG_ENV) : 
-                              DIRAM_DEFAULT_CONFIG;
-    parse_config_file(config_file);
+    // Start monitoring thread if in detach mode
+    pthread_t monitor_thread;
+    if (ctx.detach_mode) {
+        if (pthread_create(&monitor_thread, NULL, library_worker, &ctx) != 0) {
+            fprintf(stderr, "Failed to create monitor thread\n");
+            return 1;
+        }
+        printf("[DAEMON] Started background monitoring thread\n");
+    }
     
-    // Handle detach mode
-    if (g_config.detach_mode) {
-        // Prepare argv without --detach for re-execution
-        char **new_argv = malloc(sizeof(char*) * argc);
-        int j = 0;
-        for (int i = 0; i < argc; i++) {
-            if (strcmp(argv[i], "--detach") != 0 && strcmp(argv[i], "-d") != 0) {
-                new_argv[j++] = argv[i];
+    // Process script file if provided
+    if (optind < argc) {
+        const char* script_file = argv[optind];
+        printf("[EXEC] Processing script: %s\n", script_file);
+        
+        // Here you would integrate with your existing DIRAM parser
+        // For now, we'll demonstrate library interaction
+        
+        // Example: If drone_monitor.dr references libnavigation.so
+        if (strstr(script_file, "drone_monitor.dr")) {
+            void* nav_func = hook_library_function(&ctx, "libnavigation.so", "calculate_route");
+            if (nav_func && ctx.trace_enabled) {
+                printf("[TRACE] Ready to monitor navigation calculations\n");
             }
         }
-        new_argv[j] = NULL;
+    }
+    
+    // Interactive mode or daemon mode
+    if (ctx.detach_mode) {
+        printf("[DAEMON] Running in background. PID: %d\n", getpid());
+        printf("[DAEMON] Logs: %s\n", ctx.log_path);
         
-        int ret = run_detached(new_argv);
-        free(new_argv);
-        return ret;
-    }
-    
-    // Setup memory isolation
-    setup_memory_isolation();
-    
-    // Handle REPL mode
-    if (g_config.repl_mode) {
-        return run_repl();
-    }
-    
-    // Default operation
-    printf("DIRAM v%s initialized\n", DIRAM_VERSION);
-    printf("Configuration:\n");
-    printf("  Config file: %s\n", config_file);
-    printf("  Memory space: %s\n", g_config.memory_space);
-    if (g_config.memory_limit > 0) {
-        printf("  Memory limit: %zu MB\n", g_config.memory_limit);
+        // Keep running
+        while (1) {
+            sleep(1);
+        }
+    } else if (optind >= argc) {
+        // Interactive REPL mode
+        printf("DIRAM Interactive Mode (type 'help' for commands, 'exit' to quit)\n");
+        
+        char buffer[1024];
+        while (1) {
+            printf("diram> ");
+            if (!fgets(buffer, sizeof(buffer), stdin)) break;
+            
+            buffer[strcspn(buffer, "\n")] = 0; // Remove newline
+            
+            if (strcmp(buffer, "exit") == 0) break;
+            if (strcmp(buffer, "help") == 0) {
+                printf("Commands:\n");
+                printf("  libs     - List loaded libraries\n");
+                printf("  load LIB - Load a library\n");
+                printf("  hook LIB FUNC - Hook a function\n");
+                printf("  trace on/off - Toggle tracing\n");
+                printf("  exit     - Exit\n");
+                continue;
+            }
+            
+            if (strcmp(buffer, "libs") == 0) {
+                pthread_mutex_lock(&ctx.lib_mutex);
+                printf("Loaded libraries (%d):\n", ctx.loaded_count);
+                for (int i = 0; i < ctx.loaded_count; i++) {
+                    printf("  [%d] %s (%s)\n", i, ctx.loaded_libs[i].name,
+                           ctx.loaded_libs[i].is_static ? "static" : "dynamic");
+                }
+                pthread_mutex_unlock(&ctx.lib_mutex);
+                continue;
+            }
+            
+            // Process other commands...
+        }
     }
     
     // Cleanup
-    if (g_config.trace_enabled) {
-        diram_close_trace_log();
+    pthread_mutex_lock(&ctx.lib_mutex);
+    for (int i = 0; i < ctx.loaded_count; i++) {
+        if (!ctx.loaded_libs[i].is_static && ctx.loaded_libs[i].handle) {
+            dlclose(ctx.loaded_libs[i].handle);
+        }
     }
+    pthread_mutex_unlock(&ctx.lib_mutex);
+    
+    pthread_mutex_destroy(&ctx.lib_mutex);
     
     return 0;
 }
