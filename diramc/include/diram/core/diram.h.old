@@ -20,9 +20,13 @@
 #define DIRAM_ERR_UNKNOWN              0x1010
 #define DIRAM_ERR_GOVERNANCE_FAIL      0x1011
 
+
 #define DIRAM_SHA256_HEX_LEN           65
+
+
 #define DIRAM_TRACE_LOG_PATH "/var/log/diram/trace.log"
 #define DIRAM_MAX_HEAP_EVENTS 1000
+
 
 // Status structure
 typedef struct {
@@ -30,37 +34,21 @@ typedef struct {
     int ok;
 } diram_status_t;
 
-// Base allocation structure (simplified, used in enhanced)
+// Base allocation structure
 typedef struct {
     void* ptr;
     size_t size;
     char sha256_receipt[DIRAM_SHA256_HEX_LEN];
-} diram_base_allocation_t;
-
-// Traced allocation structure (for legacy trace functions)
-typedef struct {
-    void* base_addr;
-    size_t size;
-    uint64_t timestamp;
-    uint32_t heap_events;
-    pid_t binding_pid;
-    char sha256_receipt[DIRAM_SHA256_HEX_LEN];
 } diram_allocation_t;
 
-// Enhanced allocation with metadata
+// Enhanced allocation with metadata - COMPLETE DEFINITION
 typedef struct diram_enhanced_allocation {
-    diram_base_allocation_t base;  // Changed from diram_allocation_t
+    diram_allocation_t base;
     time_t timestamp;
     pid_t pid;
     char tag[128];
     uint32_t flags;
 } diram_enhanced_allocation_t;
-
-// Thread-local heap context
-typedef struct {
-    uint64_t command_epoch;
-    uint32_t event_count;
-} diram_heap_context_t;
 
 // Memory space structure
 typedef struct diram_memory_space {
@@ -74,18 +62,27 @@ typedef struct diram_memory_space {
 } diram_memory_space_t;
 
 // Core allocation functions
-diram_allocation_t* diram_alloc_traced(size_t size, const char* tag);
-void diram_free_traced(diram_allocation_t* alloc);
-void diram_compute_receipt(diram_allocation_t* alloc, const char* tag);
-int diram_init_trace_log(void);
-void diram_close_trace_log(void);
-
 diram_enhanced_allocation_t* diram_alloc_enhanced(
     size_t size,
     const char* tag,
     diram_memory_space_t* space
 );
 
+// Missing heap context structure
+typedef struct {
+    uint64_t command_epoch;
+    uint32_t event_count;
+} diram_heap_context_t;
+
+// Missing or incomplete allocation structure
+typedef struct {
+    void* base_addr;
+    size_t size;
+    uint64_t timestamp;
+    uint32_t heap_events;
+    pid_t binding_pid;
+    char sha256_receipt[65];
+} diram_allocation_t;
 // Space management
 diram_memory_space_t* diram_space_create(const char* name, size_t limit);
 void diram_space_destroy(diram_memory_space_t* space);
