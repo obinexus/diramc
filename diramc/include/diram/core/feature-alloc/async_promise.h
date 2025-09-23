@@ -229,5 +229,9 @@ diram_enhanced_allocation_t* diram_alloc_enhanced(
 #define DIRAM_ERR_GOVERNANCE_FAIL      0x1011
 #define DIRAM_ERR_TIMEOUT              0x100B
 #define DIRAM_ERR_CANCELLED            0x100C
+#define DIRAM_ERR_PENDING              0x100D
+#define DIRAM_ERR_INVALID_ARG          0x100E
+#define DIRAM_ERR_FATAL                0x100F
+#define DIRAM_ERR_UNKNOWN              0x1010
 
 #endif // DIRAM_ASYNC_PROMISE_H

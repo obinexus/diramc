@@ -14,7 +14,7 @@
 #ifndef DIRAM_ERR_TIMEOUT
 #define DIRAM_ERR_TIMEOUT        0x100B
 #define DIRAM_ERR_CANCELLED      0x100C
-#define DIRAM_ERR_PENDINGG        0x100D
+#define DIRAM_ERR_PENDING        0x100D
 #define DIRAM_ERR_INVALID_ARG    0x100E
 #define DIRAM_ERR_FATAL          0x100F
 #define DIRAM_ERR_UNKNOWN        0x1010
@@ -29,7 +29,22 @@
 #ifndef DIRAM_ERR_TIMEOUT
 #define DIRAM_ERR_TIMEOUT        0x100B
 #define DIRAM_ERR_CANCELLED      0x100C
-#define DIRAM_ERR_PENDINGG        0x100D
+#define DIRAM_ERR_PENDING        0x100D
+#define DIRAM_ERR_INVALID_ARG    0x100E
+#define DIRAM_ERR_FATAL          0x100F
+#define DIRAM_ERR_UNKNOWN        0x1010
+#define DIRAM_SUCCESS            DIRAM_ERR_NONE
+#endif
+
+#ifndef DIRAM_SHA256_HEX_LEN
+#define DIRAM_SHA256_HEX_LEN 65
+#endif
+
+// Extension error codes for async promises
+#ifndef DIRAM_ERR_TIMEOUT
+#define DIRAM_ERR_TIMEOUT        0x100B
+#define DIRAM_ERR_CANCELLED      0x100C
+#define DIRAM_ERR_PENDING        0x100D
 #define DIRAM_ERR_INVALID_ARG    0x100E
 #define DIRAM_ERR_FATAL          0x100F
 #define DIRAM_ERR_UNKNOWN        0x1010
@@ -40,7 +55,7 @@
 #ifndef DIRAM_ERR_TIMEOUT
 #define DIRAM_ERR_TIMEOUT        0x100B
 #define DIRAM_ERR_CANCELLED      0x100C
-#define DIRAM_ERR_PENDINGG        0x100D
+#define DIRAM_ERR_PENDING        0x100D
 #define DIRAM_ERR_INVALID_ARG    0x100E
 #define DIRAM_ERR_FATAL          0x100F
 #define DIRAM_ERR_UNKNOWN        0x1010
@@ -530,7 +545,7 @@ diram_status_t diram_promise_get_status(diram_async_promise_t* promise) {
             status.ok = 0;
             break;
         default:
-            status.err = DIRAM_ERR_PENDINGG;  // Fixed typo
+            status.err = DIRAM_ERR_PENDING;  // Fixed typo
             status.ok = 0;
             break;
     }
