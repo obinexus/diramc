@@ -3,7 +3,7 @@
 // src/core/diram.c - Core implementation
 // ============================================================================
 
-#include "diram.h"
+#include "./include/diram/core/diram.h"
 #include <math.h>
 #include <string.h>
 
