@@ -1,96 +1,79 @@
-// src/core/feature-alloc/cache_lookahead.c
-#include "diram/core/feature-alloc/async_promise.h"
-#include <time.h>
 
-// Lookahead cache structure for predictive allocation
+
+// ============================================================================
+// src/feature-alloc/cache_lookahead.c - Predictive phenomena
+// ============================================================================
+
 typedef struct {
-    size_t predicted_size;
-    uint32_t access_pattern;  // Bitmap of recent access
-    uint64_t last_access;
-    double confidence_score;  // 0.0 to 1.0
-} diram_lookahead_entry_t;
+    phenotype_t observed_sequence[32];  // Recent phenomena observations
+    uint32_t sequence_length;
+    float confidence_scores[32];        // Confidence in each observation
+} phenomenon_predictor_t;
 
-// Global lookahead cache
-static struct {
-    diram_lookahead_entry_t* entries;
-    size_t capacity;
-    pthread_rwlock_t lock;
-} g_lookahead_cache = {0};
-
-// Predictive allocation with lookahead
-diram_async_promise_t* diram_alloc_with_lookahead(
-    size_t size,
-    const char* tag,
-    diram_memory_space_t* space,
-    uint32_t access_pattern_hint
-) {
-    // Create promise
-    diram_async_promise_t* promise = calloc(1, sizeof(diram_async_promise_t));
-    if (!promise) {
-        return NULL;
-    }
+// Predict next memory phenomenon based on observed patterns
+phenotype_t predict_next_phenomenon(phenomenon_predictor_t* predictor, 
+                                   dag_node_t* current_state) {
+    phenotype_t predicted = {.raw = 0};
     
-    // Initialize promise receipt
-    promise->receipt.promise_id = (uint64_t)promise;
-    promise->receipt.creation_timestamp = time(NULL);
-    promise->receipt.state = PROMISE_STATE_PENDING;
-    promise->receipt.creator_pid = getpid();
-    promise->receipt.creator_thread = pthread_self();
-    
-    pthread_mutex_init(&promise->state_mutex, NULL);
-    pthread_cond_init(&promise->state_cond, NULL);
-    
-    // Check lookahead cache for predictive hints
-    pthread_rwlock_rdlock(&g_lookahead_cache.lock);
-    size_t predicted_size = size;
-    for (size_t i = 0; i < g_lookahead_cache.capacity; i++) {
-        if (g_lookahead_cache.entries[i].access_pattern == access_pattern_hint) {
-            if (g_lookahead_cache.entries[i].confidence_score > 0.7) {
-                predicted_size = g_lookahead_cache.entries[i].predicted_size;
-            }
-            break;
+    // Analyze observed sequence for patterns
+    if (predictor->sequence_length >= 3) {
+        // Look for repeating patterns (simple markov chain)
+        uint32_t pattern_length = detect_pattern_length(predictor->observed_sequence,
+                                                       predictor->sequence_length);
+        
+        if (pattern_length > 0) {
+            // Predict based on pattern
+            uint32_t next_index = predictor->sequence_length % pattern_length;
+            predicted = predictor->observed_sequence[next_index];
         }
     }
-    pthread_rwlock_unlock(&g_lookahead_cache.lock);
     
-    promise->lookahead_size = predicted_size;
-    promise->cache_priority = access_pattern_hint;
+    // Weight prediction by DAG edge probabilities
+    float total_probability = 0.0f;
+    phenotype_t weighted_sum = {.raw = 0};
     
-    // Spawn async allocation thread
-    pthread_t alloc_thread;
-    pthread_create(&alloc_thread, NULL, async_allocation_worker, promise);
-    pthread_detach(alloc_thread);
+    for (uint32_t i = 0; i < current_state->edge_count; i++) {
+        dag_edge_t* edge = current_state->edges[i];
+        
+        // Weight each possible next state by its probability
+        uint32_t weighted_pheno = (uint32_t)(edge->trigger.raw * edge->probability);
+        weighted_sum.raw += weighted_pheno;
+        total_probability += edge->probability;
+    }
     
-    return promise;
+    if (total_probability > 0.0f) {
+        // Combine pattern prediction with DAG probabilities
+        predicted.raw = (predicted.raw / 2) + 
+                       (weighted_sum.raw / (uint32_t)(total_probability * 2));
+    }
+    
+    return predicted;
 }
 
-// Worker thread for async allocation
-static void* async_allocation_worker(void* arg) {
-    diram_async_promise_t* promise = (diram_async_promise_t*)arg;
+// Prefetch based on predicted phenomena
+int prefetch_by_phenomenon(diram_context_t* ctx, phenotype_t predicted) {
+    // Navigate DAG to predicted state
+    dag_node_t* predicted_state = diram_navigate_dag(ctx, predicted);
     
-    // Simulate async work with potential failures
-    diram_enhanced_allocation_t* alloc = diram_alloc_enhanced(
-        promise->lookahead_size,
-        "async_alloc",
-        NULL  // Space will be bound later
-    );
+    // Determine prefetch size based on predicted phenomena
+    size_t prefetch_size = 0;
     
-    if (alloc) {
-        // Generate receipt
-        memcpy(promise->receipt.allocation_receipt, 
-               alloc->base.sha256_receipt,
-               DIRAM_SHA256_HEX_LEN);
-        
-        diram_promise_resolve(promise, alloc);
+    if (predicted.fields.frequency >= 5) {
+        prefetch_size = 4096;  // High frequency - prefetch more
+    } else if (predicted.fields.locality >= 10) {
+        prefetch_size = 2048;  // High locality - medium prefetch
     } else {
-        // Determine rejection reason
-        diram_reject_reason_t reason = REJECT_REASON_MEMORY_EXHAUSTED;
-        if (errno == ENOMEM) {
-            reason = REJECT_REASON_FATAL_ERROR;
-        }
-        
-        diram_promise_reject(promise, reason, strerror(errno));
+        prefetch_size = 1024;  // Default prefetch
     }
     
-    return NULL;
+    // Perform speculative allocation
+    void* prefetched = diram_alloc(ctx, prefetch_size, predicted);
+    
+    if (prefetched) {
+        // Mark as speculative
+        mark_memory_speculative(prefetched, prefetch_size);
+        return 0;
+    }
+    
+    return -1;
 }

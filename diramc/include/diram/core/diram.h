@@ -1,74 +1,101 @@
-#ifndef DIRAM_H
-#define DIRAM_H
+
+// DIRAM Core Implementation Strategy
+// Solving the phenomenological memory problem through directed axial DAG
+
+// ============================================================================
+// CORE PROBLEM: Memory as Observable Phenomena
+// ============================================================================
+
+// include/diram/core/diram.h - Primary phenomenological interface
+#ifndef DIRAM_CORE_H
+#define DIRAM_CORE_H
 
 #include <stdint.h>
-#include <stddef.h>
-#include <time.h>
-#include <unistd.h>
-#include <stdio.h>
+#include <stdbool.h>
 
-#ifdef _WIN32
-    #include <windows.h>
-    #define getpid _getpid
-    typedef CRITICAL_SECTION pthread_mutex_t;
-    #define PTHREAD_MUTEX_INITIALIZER {0}
-#else
-    #include <pthread.h>
-#endif
+// Bit field phenotype structure - observable memory behaviors
+typedef union {
+    struct {
+        // Temporal phenomena (how memory changes over time)
+        uint8_t age:        3;  // 0-7 age buckets
+        uint8_t frequency:  3;  // 0-7 access frequency
+        uint8_t volatility: 2;  // 0-3 change rate
+        
+        // Spatial phenomena (how memory relates in space)
+        uint8_t locality:   4;  // 0-15 spatial proximity score
+        uint8_t clustering: 2;  // 0-3 cluster density
+        uint8_t spread:     2;  // 0-3 distribution pattern
+        
+        // Causal phenomena (why memory exists)
+        uint8_t intent:     4;  // 0-15 intent strength
+        uint8_t dependency: 3;  // 0-7 causal chain depth
+        uint8_t necessity:  1;  // 0-1 required vs optional
+        
+        // Governance phenomena (how memory is controlled)
+        uint8_t authority:  3;  // 0-7 permission level
+        uint8_t compliance: 2;  // 0-3 governance state
+        uint8_t audit:      3;  // 0-7 audit trail depth
+    } fields;
+    uint32_t raw;
+} phenotype_t;
 
-#define DIRAM_MAX_HEAP_EVENTS 3
-#define DIRAM_SHA256_HEX_LEN 65
-#define DIRAM_TRACE_LOG_PATH "logs/diram_trace.log"
-
-// Core types
+// Directed Axial State - 3D intent space navigation
 typedef struct {
-    void* base_addr;
-    size_t size;
-    uint64_t timestamp;
-    uint32_t heap_events;
-    pid_t binding_pid;
-    char sha256_receipt[65];
-} diram_allocation_t;
+    uint16_t x_intent;      // Primary intent axis (what)
+    uint16_t y_verify;      // Verification axis (how)
+    uint16_t z_govern;      // Governance axis (why)
+    uint32_t magnitude;     // Vector magnitude (strength)
+} axial_state_t;
 
+// DAG Node - Observable memory state
+typedef struct dag_node {
+    phenotype_t phenotype;          // Observable phenomena
+    axial_state_t axial;            // Position in intent space
+    uint64_t intent_region;         // Memory region identifier
+    
+    struct dag_edge** edges;       // State transitions
+    uint32_t edge_count;
+    uint32_t edge_capacity;
+    
+    // Phenomenological metrics
+    float observation_confidence;   // How clearly we observe this state
+    float stability_score;          // How stable this state is
+    uint64_t observation_count;     // Times this state was observed
+    
+    // Triple-stream correlation
+    uint8_t stream_a_state[3];     // Primary instruction stream
+    uint8_t stream_b_state[3];     // Verification stream
+    uint8_t stream_c_state[3];     // Governance stream
+} dag_node_t;
+
+// DAG Edge - State transition triggered by phenomena
+typedef struct dag_edge {
+    dag_node_t* from;               // Source state
+    dag_node_t* to;                 // Target state
+    phenotype_t trigger;            // Phenomenon that triggers transition
+    float probability;              // Likelihood of transition
+    uint64_t traversal_count;       // Times this edge was taken
+} dag_edge_t;
+
+// Core DIRAM context - the phenomenological observer
 typedef struct {
-    uint64_t command_epoch;
-    uint32_t event_count;
-} diram_heap_context_t;
-
-// Memory space management
-typedef struct {
-    char space_name[64];
-    size_t limit_bytes;
-    size_t used_bytes;
-    uint32_t allocation_count;
-    pid_t owner_pid;
-    int isolation_active;
-    pthread_mutex_t lock;
-} diram_memory_space_t;
-
-// Error codes
-typedef enum {
-    DIRAM_ERR_NONE = 0,
-    DIRAM_ERR_HEAP_CONSTRAINT = 0x1001,
-    DIRAM_ERR_MEMORY_EXHAUSTED = 0x1002,
-    DIRAM_ERR_BOUNDARY_VIOLATION = 0x1003,
-    DIRAM_ERR_PID_MISMATCH = 0x1004
-} diram_error_code_t;
-
-// Core allocation API
-diram_allocation_t* diram_alloc_traced(size_t size, const char* tag);
-void diram_free_traced(diram_allocation_t* alloc);
-int diram_init_trace_log(void);
-void diram_close_trace_log(void);
-void diram_compute_receipt(diram_allocation_t* alloc, const char* tag);
-
-// Memory space API
-diram_memory_space_t* diram_space_create(const char* name, size_t limit);
-void diram_space_destroy(diram_memory_space_t* space);
-int diram_space_check_limit(diram_memory_space_t* space, size_t requested);
-
-// Error management
-void diram_error_index_init(void);
-void diram_error_index_shutdown(void);
-
-#endif /* DIRAM_H */
+    dag_node_t* dag_root;           // Root of state DAG
+    dag_node_t* current_state;      // Current observed state
+    
+    // Observation apparatus
+    phenotype_t* observation_buffer;
+    size_t observation_capacity;
+    size_t observation_count;
+    
+    // Intent region map
+    struct intent_region* regions;
+    size_t region_count;
+    
+    // Triple-stream processor
+    struct triple_stream* streams;
+    
+    // Phenomenological configuration
+    float phenomenon_threshold;     // Minimum observation confidence
+    uint32_t max_dag_depth;         // Maximum DAG traversal depth
+    bool enable_hotwire;            // Allow emergency bypass
+} diram_context_t;
