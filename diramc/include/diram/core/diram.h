@@ -73,6 +73,43 @@ typedef struct diram_memory_space {
     uint32_t flags;
 } diram_memory_space_t;
 
+// Phenomenological types for DIRAM memory observation
+typedef struct {
+    uint64_t signature;
+    uint32_t semantic_hash;
+    float confidence;
+    uint8_t dimensions[16];  // Dimensional attributes
+} phenotype_t;
+
+// DAG node for navigation
+typedef struct dag_node {
+    void* memory_ref;
+    phenotype_t phenotype;
+    struct dag_node* next;
+    struct dag_node* prev;
+    struct dag_node** children;
+    size_t child_count;
+    uint32_t depth;
+} dag_node_t;
+
+// Axial state representation
+typedef struct {
+    float vectors[3];     // x, y, z axes
+    float rotation[4];    // Quaternion
+    uint64_t timestamp;
+    uint32_t stability;
+} axial_state_t;
+
+// Main DIRAM context (different from heap context)
+typedef struct {
+    diram_heap_context_t* heap_ctx;
+    diram_memory_space_t* spaces[16];  // Multiple memory spaces
+    dag_node_t* dag_root;
+    pthread_mutex_t global_lock;
+    uint32_t flags;
+    char session_id[64];
+} diram_context_t;
+
 // Core allocation functions
 diram_allocation_t* diram_alloc_traced(size_t size, const char* tag);
 void diram_free_traced(diram_allocation_t* alloc);
@@ -93,7 +130,6 @@ int diram_space_check_limit(diram_memory_space_t* space, size_t requested);
 void diram_error_index_init(void);
 void diram_error_index_shutdown(void);
 
-
 // Core DIRAM allocation functions
 void* diram_alloc(diram_context_t* ctx, size_t size, phenotype_t intent);
 void diram_free(diram_context_t* ctx, void* memory);
@@ -110,4 +146,5 @@ axial_state_t compute_axial_intent(phenotype_t current, phenotype_t intent, dag_
 // Context management
 diram_context_t* diram_init(void);
 void diram_destroy(diram_context_t* ctx);
+
 #endif // DIRAM_CORE_H
