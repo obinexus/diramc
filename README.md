@@ -1,4 +1,5 @@
-# DIRAM: A Hamiltonian-Eulerian Constrained Architecture | The Memory That Actually Gets You
+# DIRAM:   Directd Instrcution RADNOM aCEESS mEMORY 
+A Hamiltonian-Eulerian Constrained Architecture | The Memory That Actually Gets You
 
 ## Bridging Deterministic & Quantum Realms Through a Unified Coherence Policy Pool
 
