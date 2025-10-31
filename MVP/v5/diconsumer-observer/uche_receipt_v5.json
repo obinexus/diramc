@@ -1,0 +1,14 @@
+{
+  "name": "DIRAM v5.2 UCHE RECEIPT #001",
+  "description": "Proof of 100% coherence under 200+ sabotage attacks. Memory that heals. Culture that endures.",
+  "image": "ipfs://Qm.../diram_v5_attack_proof.png",
+  "attributes": [
+    { "trait_type": "Coherence", "value": "100.000%" },
+    { "trait_type": "Attacks Survived", "value": 200 },
+    { "trait_type": "Invariant", "value": "I will not become what I sought to break." },
+    { "trait_type": "Author", "value": "Nnamdi Michael Okpala" },
+    { "trait_type": "Spirit", "value": "Uche" }
+  ],
+  "external_url": "https://github.com/obinexus/diramc",
+  "background_color": "0F0F0F"
+}
