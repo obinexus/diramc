@@ -102,6 +102,7 @@ void fmt_led(char buf[5], int val)
 /* ------------------------------------------------------------------
  *  Main demo
  * ------------------------------------------------------------------ */
+
 int main(void)
 {
     printf("=== v4 Mealy/Moore Demo (compiled as %s) ===\n",
@@ -114,23 +115,22 @@ int main(void)
 
     /* ---------- Light-click demo ---------- */
     light_state_t light = OFF;
-    int clicks[] = {1,1,1,1,1,1};
+    int clicks[] = {1, 1, 1};  // one full cycle
     for (size_t i = 0; i < sizeof clicks / sizeof clicks[0]; ++i) {
         light = light_next(light, clicks[i]);
-        printf("Light click → state=%d out=%d\n",
-               (int)light, light_output(light));
+        printf("Light click → state=%d out=%d\n", (int)light, light_output(light));
     }
     putchar('\n');
 
     /* ---------- 011 detector ---------- */
     det_state_t det = S0;
-    const char *stream = "0110011011";   /* contains three overlapping "011" */
+    const char *stream = "0110011011";
     printf("011 detector input stream: %s ", stream);
     for (size_t i = 0; i < strlen(stream); ++i) {
         int bit = stream[i] - '0';
         det = det_next(det, bit);
         if (det_output(det))
-            printf("**FOUND**");
+            printf(" **FOUND**");  // ← space added
     }
     putchar('\n');
     putchar('\n');
@@ -138,16 +138,13 @@ int main(void)
     /* ---------- LED sequencer ---------- */
     printf("LED sequencer (clock ticks):\n");
     led_state_t led = LED_1000;
-
     for (int tick = 0; tick < 20; ++tick) {
         #ifdef MEALY
-        led = led_next_mealy(led, 1);   /* clock = 1 */
+        led = led_next_mealy(led, 1);
         #else
         led = led_next_moore(led, 1);
         #endif
-
-        int out = led_output(led);
-        print_led(out);
+        print_led(led_output(led));
     }
 
     return 0;
