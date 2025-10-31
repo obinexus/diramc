@@ -1,2 +1,2 @@
 gcc -O2 -pthread -o bin/diram_v5 src/main.c
-./diram_v5
+./bin/diram_v5
